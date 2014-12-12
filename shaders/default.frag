@@ -4,7 +4,7 @@ varying vec3 fs_position;
 varying vec3 fs_normal;
 
 void main (void){
-   vec3 L = normalize(u_light - fs_position);
+   vec3 L = normalize(u_light);
    vec3 E = normalize(-fs_position); // we are in Eye Coordinates, so EyePos is (0,0,0) 
    vec3 R = normalize(-reflect(L, fs_normal));
 

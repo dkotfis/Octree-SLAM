@@ -5,7 +5,7 @@ varying vec3 fs_normal;
 varying vec3 fs_color;
 
 void main (void){
-   vec3 L = normalize(u_light - fs_position);
+   vec3 L = normalize(u_light);
    vec3 E = normalize(-fs_position); // we are in Eye Coordinates, so EyePos is (0,0,0) 
    vec3 R = normalize(-reflect(L, fs_normal));
 

@@ -1,6 +1,3 @@
-// CIS565 CUDA Rasterizer: A simple rasterization pipeline for Patrick Cozzi's CIS565: GPU Computing at the University of Pennsylvania
-// Written by Yining Karl Li, Copyright (c) 2012 University of Pennsylvania
-
 #ifndef RASTERIZEKERNEL_H
 #define RASTERIZEKERNEL_H
 

@@ -10,8 +10,8 @@
 *.opensdf
 *.cu.deps
 windows/src
-windows/VoxelRendering/Debug
-windows/VoxelRendering/Release
-windows/VoxelRendering/VoxelRendering/Debug
-windows/VoxelRendering/VoxelRendering/Release
+windows/Octree-SLAM/Debug
+windows/Octree-SLAM/Release
+windows/Octree-SLAM/Octree-SLAM/Debug
+windows/Octree-SLAM/Octree-SLAM/Release
 build

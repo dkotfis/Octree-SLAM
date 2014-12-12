@@ -5,7 +5,7 @@
 #include "sceneStructs.h"
 
 //Declare octree rendering resolution
-const int log_SVO_N = 7;
+const int log_SVO_N = 8;
 
 __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_octree);
 

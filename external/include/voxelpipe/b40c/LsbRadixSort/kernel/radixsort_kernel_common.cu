@@ -45,9 +45,9 @@
 
 #pragma once
 
-#include "../../external/src/voxelpipe/b40c/KernelCommon/b40c_kernel_utils.cu"
-#include "../../external/src/voxelpipe/b40c/KernelCommon/b40c_vector_types.cu"
-#include "../../external/src/voxelpipe/b40c/LsbRadixSort/kernel/radixsort_key_conversion.cu"
+#include <voxelpipe/b40c/KernelCommon/b40c_kernel_utils.cu>
+#include <voxelpipe/b40c/KernelCommon/b40c_vector_types.cu>
+#include <voxelpipe/b40c/LsbRadixSort/kernel/radixsort_key_conversion.cu>
 
 namespace b40c {
 

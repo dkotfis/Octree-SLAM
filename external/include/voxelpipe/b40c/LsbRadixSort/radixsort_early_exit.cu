@@ -51,12 +51,12 @@
 #include <math.h> 
 #include <float.h>
 
-#include "../../external/src/voxelpipe/b40c/KernelCommon/b40c_error_synchronize.cu"
-#include "../../external/src/voxelpipe/b40c/LsbRadixSort/kernel/radixsort_reduction_kernel.cu"
-#include "../../external/src/voxelpipe/b40c/LsbRadixSort/kernel/radixsort_spine_kernel.cu"
-#include "../../external/src/voxelpipe/b40c/LsbRadixSort/kernel/radixsort_scanscatter_kernel.cu"
+#include <voxelpipe/b40c/KernelCommon/b40c_error_synchronize.cu>
+#include <voxelpipe/b40c/LsbRadixSort/kernel/radixsort_reduction_kernel.cu>
+#include <voxelpipe/b40c/LsbRadixSort/kernel/radixsort_spine_kernel.cu>
+#include <voxelpipe/b40c/LsbRadixSort/kernel/radixsort_scanscatter_kernel.cu>
 
-#include "../../external/src/voxelpipe/b40c/LsbRadixSort/radixsort_multi_cta.cu"
+#include <voxelpipe/b40c/LsbRadixSort/radixsort_multi_cta.cu>
 
 namespace b40c {
 

@@ -1,0 +1,17 @@
+*Thumbs.db
+*.log
+*.tlog
+*.pdb
+*.idb
+*.vcxproj.user
+*.vcxproj.filters
+*.suo
+*.sdf
+*.opensdf
+*.cu.deps
+windows/src
+windows/VoxelRendering/Debug
+windows/VoxelRendering/Release
+windows/VoxelRendering/VoxelRendering/Debug
+windows/VoxelRendering/VoxelRendering/Release
+build

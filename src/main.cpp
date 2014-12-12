@@ -14,28 +14,10 @@ int main(int argc, char** argv){
 #endif
 
 	bool loadedScene = false;
-	/*for(int i=1; i<argc; i++){
-	string header; 
-	string data;
-
-	istringstream liness(argv[i]);
-	getline(liness, header, '='); 
-	getline(liness, data, '=');
-	if(strcmp(header.c_str(), "mesh")==0){
-	//renderScene = new scene(data);
-	mesh = new obj();
-	objLoader* loader = new objLoader(data, mesh);
-	mesh->buildVBOs();
-	meshes.push_back(mesh);
-	delete loader;
-	loadedScene = true;
-	}
-	}*/
 
 	int choice = 2;
-	cout<<"Please type which scene to load? '1'(dragon), '2'(2 cows), '3'(all_three), '4'(cow), '5'(bunny)."<<endl;
-	cout<<"Press ENTER after the number input :)\n"<<endl;
-	cin>>choice;
+	cout << "Please enter which scene to load? '1'(dragon), '2'(2 cows), '3'(all_three), '4'(cow), '5'(bunny)." << endl;
+	cin >> choice;
 
 	string local_path = path_prefix + "../objs/";
 	string data = local_path+ "2cows.obj";
@@ -79,43 +61,15 @@ int main(int argc, char** argv){
 }
 
 
-/*void loadMultipleObj(int choice, int type){
-
-string Path = path_prefix + "../objs/";
-string data;
-
-if(choice==1){	
-mesh = new obj();
-data = Path + "cube.obj";
-objLoader* loader = new objLoader(data, mesh);
-mesh->buildVBOs();
-meshes.push_back(mesh);
-delete loader;
-
-mesh = new obj();
-data = Path + "tri.obj";
-loader = new objLoader(data, mesh);
-mesh->buildVBOs();
-meshes.push_back(mesh);
-delete loader;
-}
-
-}*/
-
 void mainLoop() {
 	while(!glfwWindowShouldClose(window)){
 		glfwPollEvents();
-		double times, timed=0.0f;
-		times = clock();
+
 		if (USE_CUDA_RASTERIZER) {
 			runCuda();
 		} else {
 			runGL();
 		}
-		timed = clock();
-		double diffms = (double)(timed-times)/1000.0;
-		cout<<"Time for rendering: "<<diffms<<" seconds."<<endl;
-
 
 		time_t seconds2 = time (NULL);
 

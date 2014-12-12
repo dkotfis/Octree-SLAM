@@ -214,4 +214,4 @@ private:
 
 } // namespace voxelpipe
 
-#include "../../external/src/voxelpipe/voxelpipe_inline.h"
+#include <voxelpipe/voxelpipe_inline.h>

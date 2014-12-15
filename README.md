@@ -7,11 +7,11 @@ Large octree map construction and rendering with CUDA and OpenGL
 
 [OctoMap: An Efficient Probabilistic 3D Mapping Framework Based on Octrees] (http://www2.informatik.uni-freiburg.de/~hornunga/pub/hornung13auro.pdf)
 
-[KinectFusion: Real-Time Dense Surface Mapping and Tracking] (http://www2.informatik.uni-freiburg.de/~hornunga/pub/hornung13auro.pdf)
+[KinectFusion: Real-Time Dense Surface Mapping and Tracking] (http://research.microsoft.com/pubs/155416/kinectfusion-uist-comp.pdf)
 
-[KinectFusion: Real-time 3D Reconstruction and Interaction Using a Moving Depth Camera] (http://www2.informatik.uni-freiburg.de/~hornunga/pub/hornung13auro.pdf)
+[KinectFusion: Real-time 3D Reconstruction and Interaction Using a Moving Depth Camera] (http://research.microsoft.com/pubs/155416/kinectfusion-uist-comp.pdf)
 
-[Real-time large scale dense RGB-D SLAM with volumetric fusion] (http://www2.informatik.uni-freiburg.de/~hornunga/pub/hornung13auro.pdf)
+[Real-time large scale dense RGB-D SLAM with volumetric fusion] (http://research.microsoft.com/pubs/155416/kinectfusion-uist-comp.pdf)
 
 [Volumetric 3D Mapping in Real-Time on a CPU] (https://vision.in.tum.de/_media/spezial/bib/steinbruecker_etal_icra2014.pdf)
 

@@ -19,10 +19,6 @@
 #include <time.h>
 #include <glm/gtc/matrix_transform.hpp>
 
-#define MOUSE_SPEED 2.0*0.0001f
-#define ZOOM_SPEED 8
-#define MIDDLE_SPEED 12
-
 #define USE_CUDA_RASTERIZER 0
 #define VOXELIZE 1
 #define OCTREE 1
@@ -85,21 +81,27 @@ GLuint buffers[3];
 //----------GLOBAL STUFF-----------
 //-------------------------------
 
+//Screen/input parameters
 int width = 800; int height = 800;
-glm::vec3 eye(0.0f, 0.8f, 3.0f);
-glm::vec3 center(0.0f, 0.4f, 0.0f);
+glm::vec3 position(0.0f, 0.0f, 3.0f);
+float horizontalAngle = 3.14f;
+float verticalAngle = 0.0f;
+float FoV = 60.0f;
 float zNear = 0.001;
 float zFar = 10000.0;
-glm::mat4 projection = glm::perspective(60.0f, (float)(width) / (float)(height), zNear, zFar);
-glm::mat4 model = glm::mat4();
-glm::mat4 view = glm::lookAt(eye,center , glm::vec3(0, 1, 0));
-glm::mat4 modelview = view * glm::mat4();
-glm::vec3 lightpos = glm::vec3(0, 2.0f, 2.0f);
+float speed = 1.0f;
+float mouseSpeed = 0.005f;
+double lastTime;
 
-//Make the camera move on the surface of sphere
-float vPhi = 0.0f;
-float vTheta = 3.14105926f / 2.0f;
-float R = glm::length(eye);
+//Camera matrices
+glm::mat4 projection;
+glm::mat4 model;
+glm::mat4 view;
+glm::mat4 modelview;
+glm::mat4 mvp;
+
+//Light position
+glm::vec3 lightpos = glm::vec3(0, 2.0f, 2.0f);
 
 //-------------------------------
 //-------------MAIN--------------
@@ -108,13 +110,14 @@ float R = glm::length(eye);
 int main(int argc, char** argv);
 void loadMultipleObj(int choice, int type);
 
-
 //-------------------------------
 //---------RUNTIME STUFF---------
 //-------------------------------
 
 void runCuda();
 void runGL();
+
+void computeMatricesFromInputs();
 
 #ifdef __APPLE__
 	void display();
@@ -155,17 +158,8 @@ void deleteTexture(GLuint* tex);
 
 void mainLoop();
 void errorCallback(int error, const char *description);
-void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods);
-//Add mouse control
-double MouseX = 0.0;
-double MouseY = 0.0;
 bool LB = false;
-bool RB = false;
-bool MB = false;
-bool inwindow = false;
 void MouseClickCallback(GLFWwindow *window, int button, int action, int mods);
-void CursorCallback(GLFWwindow *window, double x,double y);
 void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
-void CursorEnterCallback(GLFWwindow *window,int entered);
 
 #endif

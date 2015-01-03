@@ -471,7 +471,7 @@ __global__ void render(glm::vec2 resolution, fragment* depthbuffer, glm::vec3* f
 }
 
 // Wrapper for the __global__ call that sets up the kernel calls and does a ton of memory management
-void cudaRasterizeCore(uchar4* PBOpos, glm::vec2 resolution, glm::mat4 rotationM, float frame, float* vbo, int vbosize, float* cbo, int cbosize, int* ibo, int ibosize, float* nbo, int nbosize, bmp_texture *tex, vector<glm::vec4> *texcoord, glm::vec3 eye, glm::vec3 center, glm::mat4 view, glm::vec3 lightpos, int mode, bool barycenter){
+void cudaRasterizeCore(uchar4* PBOpos, glm::vec2 resolution, glm::mat4 rotationM, float frame, float* vbo, int vbosize, float* cbo, int cbosize, int* ibo, int ibosize, float* nbo, int nbosize, bmp_texture *tex, vector<glm::vec4> *texcoord, glm::mat4 view, glm::vec3 lightpos, int mode, bool barycenter){
 
 	// set up crucial magic
 	int tileSize = 8;

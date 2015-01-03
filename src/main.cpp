@@ -16,20 +16,16 @@ int main(int argc, char** argv){
 	bool loadedScene = false;
 
 	int choice = 2;
-	cout << "Please enter which scene to load? '1'(dragon), '2'(2 cows), '3'(all_three), '4'(cow), '5'(bunny)." << endl;
+	cout << "Please enter which scene to load? '1'(dragon), '2'(cow), '3'(bunny)." << endl;
 	cin >> choice;
 
 	string local_path = path_prefix + "../objs/";
 	string data = local_path+ "2cows.obj";
-	if(choice==1)
+	if (choice == 1)
 		data = local_path+ "dragon_tex.obj";
-	else if(choice==2)
-		data = local_path+ "2cows.obj";
-	else if(choice==3)
-		data = local_path+ "all_three.obj";
-	else if (choice == 4)
+	else if (choice == 2)
 		data = local_path + "cow_tex.obj";
-  else if (choice == 5)
+  else if (choice == 3)
     data = local_path + "bunny_tex.obj";
 
 	mesh = new obj();
@@ -64,6 +60,8 @@ int main(int argc, char** argv){
 void mainLoop() {
 	while(!glfwWindowShouldClose(window)){
 		glfwPollEvents();
+
+    computeMatricesFromInputs();
 
 		if (USE_CUDA_RASTERIZER) {
 			runCuda();
@@ -103,6 +101,55 @@ void mainLoop() {
 //---------RUNTIME STUFF---------
 //-------------------------------
 
+void computeMatricesFromInputs() {
+
+  //Compute the current time
+  double currentTime = glfwGetTime();
+  float deltaTime = float(currentTime = lastTime);
+  lastTime = currentTime;
+
+  //Only use the mouse if the left button is clicked
+  if (LB) {
+    //Read the mouse position
+    double xpos, ypos;
+    glfwGetCursorPos(window, &xpos, &ypos); 
+
+    //Reset the mouse position to the center
+    glfwSetCursorPos(window, width/2, height/2);
+
+    //Compute the viewing angle
+    horizontalAngle += mouseSpeed * deltaTime * float(width/2 - xpos);
+    verticalAngle += mouseSpeed * deltaTime * float(height/2 - ypos);
+  }
+
+  //Compute the direction
+  glm::vec3 direction(cos(verticalAngle) * sin(horizontalAngle), sin(verticalAngle), cos(verticalAngle)*cos(horizontalAngle));
+  glm::vec3 right = glm::vec3(sin(horizontalAngle - 3.14f/2.0f), 0, cos(horizontalAngle - 3.14f/2.0f));
+  glm::vec3 up = glm::cross(right, direction);
+
+  //Compute position from keyboard inputs
+  if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
+    position += direction * deltaTime * speed;
+  }
+  if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
+    position -= direction * deltaTime * speed;
+  }
+  if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
+    position += right * deltaTime * speed;
+  }
+  if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
+    position -= right * deltaTime * speed;
+  }
+
+  //Update the matrices
+  model = glm::mat4(1.0f);
+  view = glm::lookAt(position, position+direction, up);
+  projection = glm::perspective(FoV, (float)(width) / (float)(height), zNear, zFar);
+  modelview = view * model;
+  mvp = projection*modelview;
+
+}
+
 void runCuda() {
 	// Map OpenGL buffer object for writing from CUDA on a single GPU
 	// No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
@@ -136,7 +183,7 @@ void runCuda() {
 	}
 
 	cudaGLMapBufferObject((void**)&dptr, pbo);
-	cudaRasterizeCore(dptr, glm::vec2(width, height), rotationM, frame, vbo, vbosize, cbo, cbosize, ibo, ibosize, nbo, nbosize, &tex, texcoord, eye, center, view, lightpos, mode, barycenter);
+	cudaRasterizeCore(dptr, glm::vec2(width, height), rotationM, frame, vbo, vbosize, cbo, cbosize, ibo, ibosize, nbo, nbosize, &tex, texcoord, view, lightpos, mode, barycenter);
 	cudaGLUnmapBufferObject(pbo);
 
 	vbo = NULL;
@@ -174,10 +221,6 @@ void runGL() {
 		nbo = mesh->getNBO();
 		nbosize = mesh->getNBOsize();
 	}
-
-	view = glm::lookAt(eye, center, glm::vec3(0, 1, 0));
-	modelview = view * glm::mat4();
-	glm::mat4 mvp = projection*modelview;
 
 	//Send the MV, MVP, and Normal Matrices
 	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
@@ -298,10 +341,7 @@ bool init(int argc, char* argv[]) {
 		return false;
 	}
 	glfwMakeContextCurrent(window);
-	glfwSetKeyCallback(window, keyCallback);
 	glfwSetMouseButtonCallback(window, MouseClickCallback);
-	glfwSetCursorEnterCallback(window, CursorEnterCallback);
-	glfwSetCursorPosCallback(window, CursorCallback);
 	glfwSetScrollCallback(window, ScrollCallback);
 
 	// Set up GL context
@@ -322,6 +362,9 @@ bool init(int argc, char* argv[]) {
 		initGL();
 		initDefaultShaders();
 	}
+
+  // Initialize the time
+  lastTime = glfwGetTime();
 
 	return true;
 }
@@ -415,6 +458,7 @@ void initGL() {
 
 	glGenBuffers(3, buffers);
 	glEnable(GL_DEPTH_TEST);
+  glEnable(GL_CULL_FACE);
 
 }
 
@@ -486,113 +530,19 @@ void errorCallback(int error, const char* description){
 	fputs(description, stderr);
 }
 
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods){
-	if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS){
-		glfwSetWindowShouldClose(window, GL_TRUE);
-	}
-	if(key == GLFW_KEY_W && action == GLFW_PRESS){
-		eye.y += 0.1f;
-	}
-	if(key == GLFW_KEY_S && action == GLFW_PRESS){
-		eye.y -= 0.1f;
-	}
-	if(key == GLFW_KEY_A && action == GLFW_PRESS){
-		eye.x += 0.1f;
-	}
-	if(key == GLFW_KEY_D && action == GLFW_PRESS){
-		eye.x -= 0.1f;
-	}
-	if(key == GLFW_KEY_Q && action == GLFW_PRESS){
-		eye.z += 0.1f;
-	}
-	if(key == GLFW_KEY_E && action == GLFW_PRESS){
-		eye.z -= 0.1f;
-	}
-	if(key == GLFW_KEY_N && action == GLFW_PRESS){
-		mode++;
-		if(mode > 2)
-			mode = 0;
-	}
-	if(key == GLFW_KEY_M && action == GLFW_PRESS){
-		if(barycenter)
-			barycenter = false;
-		else barycenter = true;
-	}
-}
-
-//mouse functions, changing view matrix and eyepos
-void CursorEnterCallback(GLFWwindow *window,int entered){
-	if(entered == GL_TRUE)
-		inwindow = true;
-	else
-		inwindow = false;
-}
-
 void MouseClickCallback(GLFWwindow *window, int button, int action, int mods){
-	if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT){
-		glfwGetCursorPos(window,&MouseX,&MouseY);
+  if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
 		LB = true;
-	}
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+  }
 
-	if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_RIGHT){
-		glfwGetCursorPos(window,&MouseX,&MouseY);
-		RB = true;
-	}
-
-	if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_MIDDLE){
-		glfwGetCursorPos(window,&MouseX,&MouseY);
-		MB = true;
-	}
-
-	if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT)
+  if (action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT) {
 		LB = false;
-
-	if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_RIGHT)
-		RB = false;
-
-	if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_MIDDLE)
-		MB = false;
-
-}
-
-void CursorCallback(GLFWwindow *window, double x, double y){
-	x = glm::max(0.0, x);
-	x = glm::min(x, (double)width);
-	y = glm::max(0.0, y);
-	y = glm::min(y, (double)height);
-
-	int changeX = x - MouseX;
-	int changeY = y - MouseY;
-
-	if(LB&&inwindow){ //camera rotate
-		vPhi -= changeX * MOUSE_SPEED;
-		vTheta -= changeY * MOUSE_SPEED;
-		vTheta = glm::clamp(vTheta, float(1e-6), float(PI-(1e-6)));	
-	}
-
-	if(RB&&inwindow){ //zoom in and out
-		float scale = -changeX/MouseX + changeY/MouseY;
-		R = (1.0f + 0.003f * scale * ZOOM_SPEED) * R;
-		R = glm::clamp(R,zNear,zFar);
-	}
-
-	if(MB&&inwindow)
-	{
-		eye -= glm::vec3(0.00001 * MIDDLE_SPEED, 0, 0) * (float)changeX ;
-		eye += glm::vec3(0,0.00001 * MIDDLE_SPEED, 0) * (float)changeY;
-		center -= glm::vec3(0.00001 * MIDDLE_SPEED, 0, 0) * (float)changeX;
-		center += glm::vec3(0,0.00001 * MIDDLE_SPEED, 0) * (float)changeY;
-		view = glm::lookAt(eye, center, glm::vec3(0,1,0));
-	}
-
-	eye = glm::vec3(R*sin(vTheta)*sin(vPhi), R*cos(vTheta) + center.y, R*sin(vTheta)*cos(vPhi));
-	view = glm::lookAt(eye, center, glm::vec3(0,1,0));
-
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+  }
 }
 
 void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
-	R = (1.0f - 0.006f * yoffset * ZOOM_SPEED) * R;
-	R = glm::clamp(R, zNear, zFar);
-	eye = glm::vec3(R*sin(vTheta)*sin(vPhi), R*cos(vTheta) + center.y, R*sin(vTheta)*cos(vPhi));
-	view = glm::lookAt(eye, center, glm::vec3(0, 1, 0));
+  //Update the field of view from the mouse scroll wheel
+  FoV -= 2 * yoffset;
 }

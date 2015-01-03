@@ -1,5 +1,5 @@
 
-#include "main.h"
+#include <octree_slam/main.h>
 
 string path_prefix = "../../";
 
@@ -183,7 +183,7 @@ void runCuda() {
 	}
 
 	cudaGLMapBufferObject((void**)&dptr, pbo);
-	cudaRasterizeCore(dptr, glm::vec2(width, height), rotationM, frame, vbo, vbosize, cbo, cbosize, ibo, ibosize, nbo, nbosize, &tex, texcoord, view, lightpos, mode, barycenter);
+	octree_slam::rendering::rasterizeMesh(dptr, glm::vec2(width, height), rotationM, frame, vbo, vbosize, cbo, cbosize, ibo, ibosize, nbo, nbosize, &tex, texcoord, view, lightpos, mode, barycenter);
 	cudaGLUnmapBufferObject(pbo);
 
 	vbo = NULL;
@@ -290,9 +290,9 @@ void voxelizeScene() {
 
 	//Voxelize
   if (OCTREE){
-    voxelizeSVOCubes(m_in, &tex, m_cube, m_vox);
+    octree_slam::svo::voxelizeSVOCubes(m_in, &tex, m_cube, m_vox);
   } else {
-    voxelizeToCubes(m_in, &tex, m_cube, m_vox);
+    octree_slam::voxelization::voxelizeToCubes(m_in, &tex, m_cube, m_vox);
   }
 }
 
@@ -514,7 +514,7 @@ void deleteTexture(GLuint* tex){
 }
 
 void shut_down(int return_code){
-	kernelCleanup();
+	octree_slam::rendering::kernelCleanup();
 	cudaDeviceReset();
 #ifdef __APPLE__
 	glfwTerminate();

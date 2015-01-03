@@ -2,8 +2,8 @@
 // CUDA Dependencies
 #include <cuda.h>
 
-// Project Dependencies
-#include "timingUtils.h"
+// Octree-SLAM Dependencies
+#include <octree_slam/timing_utils.h>
 
 //Global data
 cudaEvent_t beginEvent, endEvent;

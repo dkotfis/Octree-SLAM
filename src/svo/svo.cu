@@ -1,13 +1,18 @@
 
-#include "svo.h"
-#include "voxelization.h"
+#include <stack>
 
+// Thrust Dependencies
 #include <thrust/device_ptr.h>
 #include <thrust/device_vector.h>
 
-#include <stack>
+// Octree-SLAM Dependencies
+#include <octree_slam/timing_utils.h>
+#include <octree_slam/voxelization/voxelization.h>
+#include <octree_slam/svo/svo.h>
 
-#include "timingUtils.h"
+namespace octree_slam {
+
+namespace svo {
 
 __global__ void flagNodes(int* voxels, int numVoxels, int* octree, int M, int T, float3 bbox0, float3 t_d, float3 p_d, int tree_depth) {
 
@@ -15,7 +20,7 @@ __global__ void flagNodes(int* voxels, int numVoxels, int* octree, int M, int T,
 
   //Don't do anything if its out of bounds
   if (index < numVoxels) {
-    float3 center = getCenterFromIndex(voxels[index], M, T, bbox0, t_d, p_d);
+    float3 center = voxelization::getCenterFromIndex(voxels[index], M, T, bbox0, t_d, p_d);
     float edge_length = abs(bbox0.x);
     float3 center_depth = make_float3(0.0f, 0.0f, 0.0f);
     int node_idx = 0;
@@ -76,7 +81,7 @@ __global__ void fillNodes(int* voxels, int numVoxels, int* values, int* octree, 
 
   //Don't do anything if its out of bounds
   if (index < numVoxels) {
-    float3 center = getCenterFromIndex(voxels[index], M, T, bbox0, t_d, p_d);
+    float3 center = voxelization::getCenterFromIndex(voxels[index], M, T, bbox0, t_d, p_d);
     float edge_length = abs(bbox0.x);
     float3 center_depth = make_float3(0.0f, 0.0f, 0.0f);
     int node_idx = 0;
@@ -235,10 +240,10 @@ __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_
   cudaMemcpy(d_numNodes, &numNodes, sizeof(int), cudaMemcpyHostToDevice);
   int depth = 0;
 
-  while (numNodes < (numVoxels*log_N) && ++depth < log_N) {
+  while (numNodes < (numVoxels*voxelization::log_N) && ++depth < voxelization::log_N) {
 
     //First, parallelize on voxels and flag nodes to be subdivided
-    flagNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_octree, M, T, bbox0, t_d, p_d, depth);
+    flagNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_octree, voxelization::M, voxelization::T, voxelization::bbox0, voxelization::t_d, voxelization::p_d, depth);
 
     cudaDeviceSynchronize();
 
@@ -253,7 +258,7 @@ __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_
   std::cout << "Num Nodes: " << numNodes << std::endl;
 
   //Write voxel values into the lowest level of the svo
-  fillNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_values, d_octree, M, T, bbox0, t_d, p_d);
+  fillNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_values, d_octree, voxelization::M, voxelization::T, voxelization::bbox0, voxelization::t_d, voxelization::p_d);
   cudaDeviceSynchronize();
 
   //Loop through the levels of the svo bottom to top and map the values by averaging child values
@@ -300,11 +305,12 @@ __host__ void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Me
   cudaMemcpy(d_counter, &initial_count, sizeof(int), cudaMemcpyHostToDevice);
 
   //Determine how to scale the number of threads needed based on the octree depth to render
-  int fac = (log_N > log_SVO_N) ? pow(8, log_N - log_SVO_N) : 1;
+  int fac = (voxelization::log_N > log_SVO_N) ? pow(8, voxelization::log_N - log_SVO_N) : 1;
 
   //Create resulting cube-ized mesh
-  createCubeMeshFromSVO << <(N*N*N / 256 / fac) + 1, 256 >> >(d_octree, d_counter, log_SVO_N, bbox0, CUBE_MESH_SCALE, numVoxels, thrust::raw_pointer_cast(&d_vbo_cube.front()),
-    m_cube.vbosize, thrust::raw_pointer_cast(&d_ibo_cube.front()), m_cube.ibosize, thrust::raw_pointer_cast(&d_nbo_cube.front()), d_vbo_out, d_ibo_out, d_nbo_out, d_cbo_out);
+  createCubeMeshFromSVO << <(voxelization::N*voxelization::N*voxelization::N / 256 / fac) + 1, 256 >> >(d_octree, d_counter, log_SVO_N, voxelization::bbox0, voxelization::CUBE_MESH_SCALE, 
+    numVoxels, thrust::raw_pointer_cast(&d_vbo_cube.front()), m_cube.vbosize, thrust::raw_pointer_cast(&d_ibo_cube.front()), m_cube.ibosize, thrust::raw_pointer_cast(&d_nbo_cube.front()), 
+    d_vbo_out, d_ibo_out, d_nbo_out, d_cbo_out);
 
   //Store output sizes
   m_out.vbosize = numVoxels * m_cube.vbosize;
@@ -338,16 +344,16 @@ __host__ void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Me
 __host__ void voxelizeSVOCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out) {
 
   //Voxelize the mesh input
-  int numVoxels = N*N*N;
+  int numVoxels = voxelization::N * voxelization::N * voxelization::N;
   int* d_voxels;
   int* d_values;
   cudaMalloc((void**)&d_voxels, numVoxels*sizeof(int));
   cudaMalloc((void**)&d_values, numVoxels*sizeof(int));
-  numVoxels = voxelizeMesh(m_in, tex, d_voxels, d_values);
+  numVoxels = voxelization::voxelizeMesh(m_in, tex, d_voxels, d_values);
 
   //Create the octree
   int* d_octree = NULL;
-  cudaMalloc((void**)&d_octree, 8*log_N*numVoxels*sizeof(int));
+  cudaMalloc((void**)&d_octree, 8 * voxelization::log_N * numVoxels * sizeof(int));
   startTiming();
   svoFromVoxels(d_voxels, numVoxels, d_values, d_octree);
   std::cout << "Build SVO Time: " << stopTiming() << std::endl;
@@ -362,3 +368,7 @@ __host__ void voxelizeSVOCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh 
   cudaFree(d_octree);
 
 }
+
+} // namespace svo
+
+} // namespace octree_slam

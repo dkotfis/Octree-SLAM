@@ -1,8 +1,8 @@
 // CIS565 CUDA Rasterizer: A simple rasterization pipeline for Patrick Cozzi's CIS565: GPU Computing at the University of Pennsylvania
 // Written by Yining Karl Li, Copyright (c) 2012 University of Pennsylvania
 
-#ifndef CUDAMAT4_H
-#define CUDAMAT4_H
+#ifndef CUDAMAT4_H_
+#define CUDAMAT4_H_
 
 #include "glm/glm.hpp"
 #include <cuda_runtime.h>
@@ -20,4 +20,4 @@ struct cudaMat4{
 	glm::vec4 w;
 };
 
-#endif
+#endif //CUDAMAT4_H_

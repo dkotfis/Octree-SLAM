@@ -1,5 +1,5 @@
-#ifndef SCENE_STRUCTS_H
-#define SCENE_STRUCTS_H
+#ifndef SCENE_STRUCTS_H_
+#define SCENE_STRUCTS_H_
 
 #include "glm/glm.hpp"
 
@@ -34,4 +34,4 @@ __host__ __device__ inline float clamp(float val, float min, float max) {
   return val;
 }
 
-#endif
+#endif //SCENE_STRUCTS_H_

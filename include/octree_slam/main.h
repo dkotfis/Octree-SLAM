@@ -2,34 +2,37 @@
 #ifndef MAIN_H
 #define MAIN_H
 
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-
-#include <cuda_runtime.h>
-#include <cuda_gl_interop.h>
 #include <fstream>
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glslUtil/glslUtility.hpp>
 #include <iostream>
-#include <objUtil/objloader.h>
 #include <sstream>
 #include <stdlib.h>
 #include <string>
 #include <time.h>
+
+#include <objUtil/objloader.h>
+
+// GL Dependencies
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glslUtil/glslUtility.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+
+// CUDA Dependencies
+#include <cuda_runtime.h>
+#include <cuda_gl_interop.h>
+
+// Octree-SLAM Dependencies
+#include <octree_slam/utilities.h>
+#include <octree_slam/scene_structs.h>
+#include <octree_slam/voxelization/voxelization.h>
+#include <octree_slam/svo/svo.h>
+#include <octree_slam/rendering/rasterize_kernels.h>
 
 #define USE_CUDA_RASTERIZER 0
 #define VOXELIZE 1
 #define OCTREE 1
-
-#include "rasterizeKernels.h"
-#include "utilities.h"
-#include "sceneStructs.h"
-#include "voxelization.h"
-#include "svo.h"
-
-using namespace std;
 
 //-------------------------------
 //------------GL STUFF-----------

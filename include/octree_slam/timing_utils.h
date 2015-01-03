@@ -8,4 +8,5 @@ void startTiming();
 /* @return Time (in ms) since startTiming was called */
 float stopTiming();
 
-#endif // TIMING_UTILS_H_
+#endif //TIMING_UTILS_H_
+

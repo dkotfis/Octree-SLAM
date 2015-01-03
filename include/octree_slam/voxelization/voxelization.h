@@ -2,7 +2,12 @@
 #define VOXELIZATION_H
 
 #include <cuda.h>
-#include "sceneStructs.h"
+
+#include <octree_slam/scene_structs.h>
+
+namespace octree_slam {
+
+namespace voxelization {
 
 //Declare voxelization resolution (TODO: input these as a parameter)
 const int log_N = 8;
@@ -49,5 +54,9 @@ __host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_
 __host__ void extractCubesFromVoxelGrid(int* d_voxels, int numVoxels, int* d_values, Mesh &m_cube, Mesh &m_out);
 
 __host__ void voxelizeToCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out);
+
+} // namespace voxelization
+
+} // namespace octree_slam
 
 #endif ///VOXELIZATION_H

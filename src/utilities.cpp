@@ -2,9 +2,10 @@
 //This file is part of UTILITYCORE, Coyright (c) 2012 Yining Karl Li
 
 #include <iostream>
-#include "utilities.h"
 #include "glm/gtc/matrix_transform.hpp"
 #include "glm/gtc/matrix_inverse.hpp"
+
+#include <octree_slam/utilities.h>
 
 float utilityCore::clamp(float f, float min, float max){
     if(f<min){

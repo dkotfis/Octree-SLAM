@@ -1,13 +1,14 @@
 // CIS565 CUDA Rasterizer: A simple rasterization pipeline for Patrick Cozzi's CIS565: GPU Computing at the University of Pennsylvania
 // Written by Yining Karl Li, Copyright (c) 2012 University of Pennsylvania
 
-#ifndef RASTERIZETOOLS_H
-#define RASTERIZETOOLS_H
+#ifndef RASTERIZE_TOOLS_H_
+#define RASTERIZE_TOOLS_H_
 
 #include <cmath>
-#include "glm/glm.hpp"
-#include "utilities.h"
-#include "cudaMat4.h"
+#include <glm/glm.hpp>
+
+#include <octree_slam/utilities.h>
+#include <octree_slam/cudaMat4.h>
 
 struct triangle {
   glm::vec3 p0;
@@ -82,4 +83,4 @@ __host__ __device__ float getZAtCoordinate(glm::vec3 barycentricCoord, triangle 
   return -(barycentricCoord.x*tri.p0.z + barycentricCoord.y*tri.p1.z + barycentricCoord.z*tri.p2.z);
 }
 
-#endif
+#endif //RASTERIZE_TOOLS_H_

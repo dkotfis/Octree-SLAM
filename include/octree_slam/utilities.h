@@ -1,8 +1,8 @@
 //UTILITYCORE- A Utility Library by Yining Karl Li
 //This file is part of UTILITYCORE, Coyright (c) 2012 Yining Karl Li
 
-#ifndef Pathtracer_utilities_h
-#define Pathtracer_utilities_h
+#ifndef UTILITIES_H_
+#define UTILITIES_H_
 
 #include "glm/glm.hpp"
 #include <algorithm>
@@ -41,4 +41,4 @@ namespace utilityCore {
     extern void printVec4(glm::vec4);
     extern void printVec3(glm::vec3);
 }
-#endif
+#endif //UTILITIES_H_

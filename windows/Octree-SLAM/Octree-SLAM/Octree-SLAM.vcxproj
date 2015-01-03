@@ -62,7 +62,7 @@
       <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <AdditionalIncludeDirectories>$(SolutionDir)..\..\external\include;$(SolutionDir)..\..\external\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)..\..\include;$(SolutionDir)..\..\external\include;$(SolutionDir)..\..\external\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -80,15 +80,6 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\..\src\cudaMat4.h" />
-    <ClInclude Include="..\..\..\src\main.h" />
-    <ClInclude Include="..\..\..\src\rasterizeKernels.h" />
-    <ClInclude Include="..\..\..\src\rasterizeTools.h" />
-    <ClInclude Include="..\..\..\src\sceneStructs.h" />
-    <ClInclude Include="..\..\..\src\utilities.h" />
-    <ClInclude Include="..\..\..\src\voxelization.h" />
-  </ItemGroup>
-  <ItemGroup>
     <ClCompile Include="..\..\..\external\src\glslUtil\glslUtility.cpp" />
     <ClCompile Include="..\..\..\external\src\nih\time\timer.cpp" />
     <ClCompile Include="..\..\..\external\src\objUtil\obj.cpp" />
@@ -98,12 +89,10 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="..\..\..\external\src\voxelpipe\compact_ranges.cu" />
-    <CudaCompile Include="..\..\..\src\rasterizeKernels.cu">
-      <FileType>Document</FileType>
-    </CudaCompile>
-    <CudaCompile Include="..\..\..\src\svo.cu" />
-    <CudaCompile Include="..\..\..\src\timingUtils.cu" />
-    <CudaCompile Include="..\..\..\src\voxelization.cu" />
+    <CudaCompile Include="..\..\..\src\rendering\rasterize_kernels.cu" />
+    <CudaCompile Include="..\..\..\src\svo\svo.cu" />
+    <CudaCompile Include="..\..\..\src\timing_utils.cu" />
+    <CudaCompile Include="..\..\..\src\voxelization\voxelization.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

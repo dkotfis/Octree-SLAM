@@ -1,15 +1,23 @@
 
-#include "voxelization.h"
+// GL Dependencies
 #include <glm/glm.hpp>
 #include <GL/glut.h>
 
+// Thrust Dependencies
 #include <thrust/device_ptr.h>
 #include <thrust/device_vector.h>
 #include <thrust/copy.h>
 
+// Voxelpipe Dependency
 #include <voxelpipe/voxelpipe.h>
 
-#include "timingUtils.h"
+// Octree-SLAM Dependencies
+#include <octree_slam/timing_utils.h>
+#include <octree_slam/voxelization/voxelization.h>
+
+namespace octree_slam {
+
+namespace voxelization {
 
 voxelpipe::FRContext<log_N, log_T>*  context;
 bool first_time = true;
@@ -313,4 +321,8 @@ __host__ void voxelizeToCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &
   cudaFree(d_voxels);
   cudaFree(d_values);
 }
+
+} // namespace voxelization
+
+} // namespace octree_slam
 

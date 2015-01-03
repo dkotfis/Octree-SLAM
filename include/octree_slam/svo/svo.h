@@ -1,8 +1,13 @@
-#ifndef SVO_H
-#define SVO_H
+#ifndef SVO_H_
+#define SVO_H_
 
 #include <cuda.h>
-#include "sceneStructs.h"
+
+#include <octree_slam/scene_structs.h>
+
+namespace octree_slam {
+
+namespace svo {
 
 //Declare octree rendering resolution
 const int log_SVO_N = 8;
@@ -13,4 +18,8 @@ __host__ void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Me
 
 __host__ void voxelizeSVOCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out);
 
-#endif ///SVO_H
+} // namespace svo
+
+} // namespace octree_slam
+
+#endif //SVO_H_

@@ -5,12 +5,14 @@
 
 #include <octree_slam/scene_structs.h>
 
+#define SVO_RES 8
+
 namespace octree_slam {
 
 namespace svo {
 
 //Declare octree rendering resolution
-const int log_SVO_N = 8;
+const int log_SVO_N = SVO_RES;
 
 __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_octree);
 

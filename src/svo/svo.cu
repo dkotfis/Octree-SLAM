@@ -240,10 +240,13 @@ __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_
   cudaMemcpy(d_numNodes, &numNodes, sizeof(int), cudaMemcpyHostToDevice);
   int depth = 0;
 
+  //Get voxel grid params
+  voxelization::gridParams params = voxelization::getParams();
+
   while (numNodes < (numVoxels*voxelization::log_N) && ++depth < voxelization::log_N) {
 
     //First, parallelize on voxels and flag nodes to be subdivided
-    flagNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_octree, voxelization::M, voxelization::T, voxelization::bbox0, voxelization::t_d, voxelization::p_d, depth);
+    flagNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_octree, voxelization::M, voxelization::T, params.bbox0, params.t_d, params.p_d, depth);
 
     cudaDeviceSynchronize();
 
@@ -258,7 +261,7 @@ __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_
   std::cout << "Num Nodes: " << numNodes << std::endl;
 
   //Write voxel values into the lowest level of the svo
-  fillNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_values, d_octree, voxelization::M, voxelization::T, voxelization::bbox0, voxelization::t_d, voxelization::p_d);
+  fillNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_values, d_octree, voxelization::M, voxelization::T, params.bbox0, params.t_d, params.p_d);
   cudaDeviceSynchronize();
 
   //Loop through the levels of the svo bottom to top and map the values by averaging child values
@@ -307,8 +310,11 @@ __host__ void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Me
   //Determine how to scale the number of threads needed based on the octree depth to render
   int fac = (voxelization::log_N > log_SVO_N) ? pow(8, voxelization::log_N - log_SVO_N) : 1;
 
+  //Get voxel grid params
+  voxelization::gridParams params = voxelization::getParams();
+
   //Create resulting cube-ized mesh
-  createCubeMeshFromSVO << <(voxelization::N*voxelization::N*voxelization::N / 256 / fac) + 1, 256 >> >(d_octree, d_counter, log_SVO_N, voxelization::bbox0, voxelization::CUBE_MESH_SCALE, 
+  createCubeMeshFromSVO << <(voxelization::N*voxelization::N*voxelization::N / 256 / fac) + 1, 256 >> >(d_octree, d_counter, log_SVO_N, params.bbox0, voxelization::CUBE_MESH_SCALE, 
     numVoxels, thrust::raw_pointer_cast(&d_vbo_cube.front()), m_cube.vbosize, thrust::raw_pointer_cast(&d_ibo_cube.front()), m_cube.ibosize, thrust::raw_pointer_cast(&d_nbo_cube.front()), 
     d_vbo_out, d_ibo_out, d_nbo_out, d_cbo_out);
 

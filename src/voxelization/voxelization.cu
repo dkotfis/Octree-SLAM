@@ -19,6 +19,7 @@ namespace octree_slam {
 
 namespace voxelization {
 
+gridParams params;
 voxelpipe::FRContext<log_N, log_T>*  context;
 bool first_time = true;
 
@@ -216,9 +217,9 @@ __host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_
   my_shader.texcoord_size = m_in.tbosize;
 
   //Perform coarse and fine voxelization
-  context->coarse_raster(n_triangles, n_vertices, thrust::raw_pointer_cast(&d_triangles.front()), thrust::raw_pointer_cast(&d_vertices.front()), bbox0, bbox1);
+  context->coarse_raster(n_triangles, n_vertices, thrust::raw_pointer_cast(&d_triangles.front()), thrust::raw_pointer_cast(&d_vertices.front()), params.bbox0, params.bbox1);
   context->fine_raster< voxelpipe::Float, voxelpipe::FP32S_FORMAT, voxelpipe::THIN_RASTER, voxelpipe::NO_BLENDING, ColorShader >(
-    n_triangles, n_vertices, thrust::raw_pointer_cast(&d_triangles.front()), thrust::raw_pointer_cast(&d_vertices.front()), bbox0, bbox1, thrust::raw_pointer_cast(&d_fb.front()), my_shader);
+    n_triangles, n_vertices, thrust::raw_pointer_cast(&d_triangles.front()), thrust::raw_pointer_cast(&d_vertices.front()), params.bbox0, params.bbox1, thrust::raw_pointer_cast(&d_fb.front()), my_shader);
 
   cudaFree(device_tex);
   cudaFree(device_texcoord);
@@ -268,7 +269,7 @@ __host__ void extractCubesFromVoxelGrid(int* d_voxels, int numVoxels, int* d_val
   }
 
   //Create resulting cube-ized mesh
-  createCubeMesh<<<(numVoxels / 256) + 1, 256>>>(d_voxels, d_values, M, T, bbox0, t_d, p_d, vox_size / CUBE_MESH_SCALE, numVoxels, thrust::raw_pointer_cast(&d_vbo_cube.front()),
+  createCubeMesh<<<(numVoxels / 256) + 1, 256>>>(d_voxels, d_values, M, T, params.bbox0, params.t_d, params.p_d, params.vox_size / CUBE_MESH_SCALE, numVoxels, thrust::raw_pointer_cast(&d_vbo_cube.front()),
     m_cube.vbosize, thrust::raw_pointer_cast(&d_ibo_cube.front()), m_cube.ibosize, thrust::raw_pointer_cast(&d_nbo_cube.front()), d_vbo_out, d_ibo_out, d_nbo_out, d_cbo_out);
 
   //Store output sizes
@@ -320,6 +321,37 @@ __host__ void voxelizeToCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &
 
   cudaFree(d_voxels);
   cudaFree(d_values);
+}
+
+__host__ void setWorldSize(float minx, float miny, float minz, float maxx, float maxy, float maxz) {
+
+  //Use max dimension to base the grid size
+  //TODO: Handle non-rectangular, non-centered objects
+  float size = 0.0f;
+  size = std::max(size, abs(minx));
+  size = std::max(size, abs(miny));
+  size = std::max(size, abs(minz));
+  size = std::max(size, abs(maxx));
+  size = std::max(size, abs(maxy));
+  size = std:: max(size, abs(maxz));
+
+  //Create bounding box to perform voxelization within
+  params.bbox0 = make_float3(-size, -size, -size);
+  params.bbox1 = make_float3(size, size, size);
+
+  //Compute the 1/2 edge length for the resulting voxelization
+  params.vox_size = size / float(N);
+
+  //Compute tile/grid sizes
+  params.t_d = make_float3((params.bbox1.x - params.bbox0.x) / float(M),
+    (params.bbox1.y - params.bbox0.y) / float(M),
+    (params.bbox1.z - params.bbox0.z) / float(M));
+  params.p_d = make_float3(params.t_d.x / float(T),
+    params.t_d.y / float(T), params.t_d.z / float(T));
+}
+
+__host__ gridParams getParams() {
+  return params;
 }
 
 } // namespace voxelization

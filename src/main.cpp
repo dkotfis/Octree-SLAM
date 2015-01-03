@@ -363,6 +363,12 @@ bool init(int argc, char* argv[]) {
 		initDefaultShaders();
 	}
 
+  // Initialize Voxelization
+  if (VOXELIZE) {
+    octree_slam::voxelization::setWorldSize(mesh->getBoundingBox()[0], mesh->getBoundingBox()[1], mesh->getBoundingBox()[18], 
+                                            mesh->getBoundingBox()[8], mesh->getBoundingBox()[5], mesh->getBoundingBox()[2]);
+  }
+
   // Initialize the time
   lastTime = glfwGetTime();
 

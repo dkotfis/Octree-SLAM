@@ -14,6 +14,9 @@ namespace octree_slam {
 
 namespace svo {
 
+texture<float, 3> brick_tex;
+surface<void, 3> brick_surf;
+
 __global__ void flagNodes(int* voxels, int numVoxels, int* octree, int M, int T, float3 bbox0, float3 t_d, float3 p_d, int tree_depth) {
 
   int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -118,35 +121,66 @@ __global__ void mipmapNodes(int* octree, int poolSize, int startNode) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   //Don't do anything if its out of bounds
-  if (index < poolSize) {
-    int node = octree[2 * (index + startNode)];
-
-    //Don't do anything if this node has no children
-    if (!(node & 0x40000000)) {
-      return;
-    }
-
-    //Get the child pointer
-    int childPoint = (node & 0x3FFFFFFF);
-
-    //Loop through children values and average them
-    glm::vec4 val = glm::vec4(0.0);
-    for (int i = 0; i < 8; i++) {
-      int child_val = octree[2*(childPoint+i) + 1];
-      val.r += (float) (child_val & 0xFF) / 8.0f;
-      val.g += (float) ((child_val >> 8) & 0xFF) / 8.0f;
-      val.b += (float) ((child_val >> 16) & 0xFF) / 8.0f;
-      val.a += (float) ((child_val >> 24) & 0x7F) / 8.0f;
-    }
-
-    //Assign value of this node to the average
-    int r = (int) (val.r);
-    int g = (int) (val.g);
-    int b = (int) (val.b);
-    int a = (int) (val.a);
-    octree[(2 * (index + startNode)) + 1] = r + (g << 8) + (b << 16) + (a << 24);
+  if (index >= poolSize) {
+    return;
   }
 
+  int node = octree[2 * (index + startNode)];
+
+  //Don't do anything if this node has no children
+  if (!(node & 0x40000000)) {
+    return;
+  }
+
+  //Get the child pointer
+  int childPoint = (node & 0x3FFFFFFF);
+
+  //Loop through children values and average them
+   glm::vec4 val = glm::vec4(0.0);
+  for (int i = 0; i < 8; i++) {
+    int child_val = octree[2*(childPoint+i) + 1];
+    val.r += (float) (child_val & 0xFF) / 8.0f;
+    val.g += (float) ((child_val >> 8) & 0xFF) / 8.0f;
+    val.b += (float) ((child_val >> 16) & 0xFF) / 8.0f;
+    val.a += (float) ((child_val >> 24) & 0x7F) / 8.0f;
+  }
+
+  //Assign value of this node to the average
+  int r = (int) (val.r);
+  int g = (int) (val.g);
+  int b = (int) (val.b);
+  int a = (int) (val.a);
+  octree[(2 * (index + startNode)) + 1] = r + (g << 8) + (b << 16) + (a << 24);
+
+}
+
+__global__ void mipmapBricks(int* octree, int poolSize, int startNode, cudaArray* bricks, float* numBricks) {
+
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+  //Don't do anything if its out of bounds
+  if (index >= poolSize) {
+    return;
+  }
+
+  int node = octree[2 * (index + startNode)];
+
+  //Don't do anything if this node has no children
+  if (!(node & 0x40000000)) {
+    return;
+  }
+
+  //Get a new brick
+  float newBrick = atomicAdd(numBricks, 3.0f);
+
+  //Assign the brick to the node
+  octree[(2 * (index + startNode)) + 1] = __float_as_int(newBrick);
+
+  //TODO: Get all necessary neighbors
+
+  //TODO: Fill the values into the brick in texture memory
+  float val = tex3D(brick_tex, 1.1f, 1.1f, 1.1f);
+  surf3Dwrite(5.0f, brick_surf, 1, 1, 1, cudaBoundaryModeClamp);
 }
 
 __global__ void createCubeMeshFromSVO(int* octree, int* counter, int total_depth, float3 bbox0, float cube_scale, int num_voxels, float* cube_vbo,
@@ -231,7 +265,7 @@ __global__ void createCubeMeshFromSVO(int* octree, int* counter, int total_depth
 }
 
 //This is based on Cyril Crassin's approach
-__host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_octree) {
+__host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_octree, cudaArray* d_bricks) {
   int numNodes = 8;
   std::stack<int> startingNodes;
   startingNodes.push(0);
@@ -264,11 +298,23 @@ __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_
   fillNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_values, d_octree, voxelization::M, voxelization::T, params.bbox0, params.t_d, params.p_d);
   cudaDeviceSynchronize();
 
+  //Initialize the global brick counter
+  float* d_numBricks;
+  float numBricks = 0;
+  if (USE_BRICK_POOL) {
+    cudaMalloc((void**)&d_numBricks, sizeof(float));
+    cudaMemcpy(d_numBricks, &numBricks, sizeof(float), cudaMemcpyHostToDevice);
+  }
+
   //Loop through the levels of the svo bottom to top and map the values by averaging child values
   numNodes = startingNodes.top(); //Skip the lowest level since the fillNodes() kernel handled that level
   startingNodes.pop();
   while (!startingNodes.empty()) {
-    mipmapNodes << <((numNodes - startingNodes.top()) / 256) + 1, 256 >> >(d_octree, numNodes - startingNodes.top(), startingNodes.top());
+    if (USE_BRICK_POOL) {
+      mipmapBricks << <((numNodes - startingNodes.top()) / 256) + 1, 256 >> >(d_octree, numNodes - startingNodes.top(), startingNodes.top(), d_bricks, d_numBricks);
+    } else {
+      mipmapNodes << <((numNodes - startingNodes.top()) / 256) + 1, 256 >> >(d_octree, numNodes - startingNodes.top(), startingNodes.top());
+    }
     cudaDeviceSynchronize();
 
     numNodes = startingNodes.top();
@@ -276,6 +322,9 @@ __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_
   }
 
   cudaFree(d_numNodes);
+  if (USE_BRICK_POOL) {
+    cudaFree(d_numBricks);
+  }
 }
 
 __host__ void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Mesh &m_out) {
@@ -357,21 +406,31 @@ __host__ void voxelizeSVOCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh 
   cudaMalloc((void**)&d_values, numVoxels*sizeof(int));
   numVoxels = voxelization::voxelizeMesh(m_in, tex, d_voxels, d_values);
 
-  //Create the octree
+  //Create the octree (with the brick pool)
   int* d_octree = NULL;
   cudaMalloc((void**)&d_octree, 8 * voxelization::log_N * numVoxels * sizeof(int));
-  startTiming();
-  svoFromVoxels(d_voxels, numVoxels, d_values, d_octree);
-  std::cout << "Build SVO Time: " << stopTiming() << std::endl;
+  cudaArray* d_bricks = NULL;
+  cudaChannelFormatDesc channel = cudaCreateChannelDesc<float>();
+  cudaExtent extents;
+  extents.width = 3*numVoxels;
+  extents.height = 3;
+  extents.depth = 3;
+  if (USE_BRICK_POOL) {
+    cudaMalloc3DArray(&d_bricks, &channel, extents, cudaArraySurfaceLoadStore);
+    cudaBindTextureToArray(brick_tex, d_bricks);
+    cudaBindSurfaceToArray(brick_surf, d_bricks);
+  }
+  svoFromVoxels(d_voxels, numVoxels, d_values, d_octree, d_bricks);
 
   //Extract cubes from the leaves of the octree
-  startTiming();
   extractCubesFromSVO(d_octree, numVoxels, m_cube, m_out);
-  std::cout << "Extract SVO Time: " << stopTiming() << std::endl;
 
   //Free up GPU memory
   cudaFree(d_voxels);
   cudaFree(d_octree);
+  if (USE_BRICK_POOL) {
+    cudaFreeArray(d_bricks);
+  }
 
 }
 

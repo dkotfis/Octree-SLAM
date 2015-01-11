@@ -29,6 +29,7 @@
 #include <octree_slam/voxelization/voxelization.h>
 #include <octree_slam/svo/svo.h>
 #include <octree_slam/rendering/rasterize_kernels.h>
+#include <octree_slam/sensor/openni_device.h>
 
 #define USE_CUDA_RASTERIZER 0
 #define VOXELIZE 1

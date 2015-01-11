@@ -13,6 +13,9 @@ int main(int argc, char** argv){
   path_prefix = "";
 #endif
 
+  //Load OpenNI Camera Device Interface
+  octree_slam::sensor::OpenNIDevice camera_device;
+
 	bool loadedScene = false;
 
 	int choice = 2;

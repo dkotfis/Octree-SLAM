@@ -31,9 +31,11 @@
 #include <octree_slam/rendering/rasterize_kernels.h>
 #include <octree_slam/sensor/openni_device.h>
 
+#define DRAW_CAMERA_COLOR 1
+#define DRAW_CAMERA_DEPTH 0
 #define USE_CUDA_RASTERIZER 0
-#define VOXELIZE 1
-#define OCTREE 1
+#define VOXELIZE 0
+#define OCTREE 0
 
 //-------------------------------
 //------------GL STUFF-----------
@@ -106,6 +108,9 @@ glm::mat4 mvp;
 
 //Light position
 glm::vec3 lightpos = glm::vec3(0, 2.0f, 2.0f);
+
+//Physical camera device interface
+octree_slam::sensor::OpenNIDevice camera_device_;
 
 //-------------------------------
 //-------------MAIN--------------

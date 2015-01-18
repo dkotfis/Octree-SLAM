@@ -13,9 +13,6 @@ int main(int argc, char** argv){
   path_prefix = "";
 #endif
 
-  //Load OpenNI Camera Device Interface
-  octree_slam::sensor::OpenNIDevice camera_device;
-
 	bool loadedScene = false;
 
 	int choice = 2;
@@ -62,13 +59,16 @@ int main(int argc, char** argv){
 
 void mainLoop() {
 	while(!glfwWindowShouldClose(window)){
+    //Read a frame from OpenNI Device
+    camera_device_.readFrame();
+
 		glfwPollEvents();
 
     computeMatricesFromInputs();
 
-		if (USE_CUDA_RASTERIZER) {
+		if (USE_CUDA_RASTERIZER && !DRAW_CAMERA_COLOR) {
 			runCuda();
-		} else {
+		} else if (!DRAW_CAMERA_COLOR) {
 			runGL();
 		}
 
@@ -81,11 +81,14 @@ void mainLoop() {
 			seconds = seconds2;
 		}
 
-		string title = "Voxel Rendering | " + utilityCore::convertIntToString((int)fps) + " FPS";
+		string title = "Octree-SLAM | " + utilityCore::convertIntToString((int)fps) + " FPS";
 		glfwSetWindowTitle(window, title.c_str());
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		if (USE_CUDA_RASTERIZER) {
+    if (DRAW_CAMERA_COLOR) {
+      //Draw the current camera color frame to the window
+      camera_device_.drawColor();
+    } else if (USE_CUDA_RASTERIZER) {
 			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
 			glBindTexture(GL_TEXTURE_2D, displayImage);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, NULL);  
@@ -374,6 +377,15 @@ bool init(int argc, char* argv[]) {
 
   // Initialize the time
   lastTime = glfwGetTime();
+
+  //Initialize camera rendering
+  if (DRAW_CAMERA_COLOR) {
+    camera_device_.initPBO();
+    initCudaVAO();
+    initCuda();
+    initPassthroughShaders();
+    glActiveTexture(GL_TEXTURE0);
+  }
 
 	return true;
 }

@@ -29,6 +29,7 @@
 #include <octree_slam/voxelization/voxelization.h>
 #include <octree_slam/svo/svo.h>
 #include <octree_slam/rendering/rasterize_kernels.h>
+#include <octree_slam/rendering/glfw_camera_controller.h>
 #include <octree_slam/sensor/openni_device.h>
 
 #define DRAW_CAMERA_COLOR 1
@@ -89,28 +90,15 @@ GLuint buffers[3];
 
 //Screen/input parameters
 int width = 800; int height = 800;
-glm::vec3 position(0.0f, 0.0f, 3.0f);
-float horizontalAngle = 3.14f;
-float verticalAngle = 0.0f;
-float FoV = 60.0f;
-float zNear = 0.001;
-float zFar = 10000.0;
-float speed = 1.0f;
-float mouseSpeed = 0.005f;
-double lastTime;
-
-//Camera matrices
-glm::mat4 projection;
-glm::mat4 model;
-glm::mat4 view;
-glm::mat4 modelview;
-glm::mat4 mvp;
 
 //Light position
 glm::vec3 lightpos = glm::vec3(0, 2.0f, 2.0f);
 
 //Physical camera device interface
-octree_slam::sensor::OpenNIDevice camera_device_;
+octree_slam::sensor::OpenNIDevice* camera_device_;
+
+//Virtual camera controller
+octree_slam::rendering::GLFWCameraController* camera_;
 
 //-------------------------------
 //-------------MAIN--------------
@@ -125,8 +113,6 @@ void loadMultipleObj(int choice, int type);
 
 void runCuda();
 void runGL();
-
-void computeMatricesFromInputs();
 
 #ifdef __APPLE__
 	void display();
@@ -167,8 +153,5 @@ void deleteTexture(GLuint* tex);
 
 void mainLoop();
 void errorCallback(int error, const char *description);
-bool LB = false;
-void MouseClickCallback(GLFWwindow *window, int button, int action, int mods);
-void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
 #endif

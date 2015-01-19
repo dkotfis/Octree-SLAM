@@ -60,11 +60,9 @@ int main(int argc, char** argv){
 void mainLoop() {
 	while(!glfwWindowShouldClose(window)){
     //Read a frame from OpenNI Device
-    camera_device_.readFrame();
+    camera_device_->readFrame();
 
-		glfwPollEvents();
-
-    computeMatricesFromInputs();
+    camera_->update();
 
 		if (USE_CUDA_RASTERIZER && !DRAW_CAMERA_COLOR) {
 			runCuda();
@@ -87,7 +85,7 @@ void mainLoop() {
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (DRAW_CAMERA_COLOR) {
       //Draw the current camera color frame to the window
-      camera_device_.drawColor();
+      camera_device_->drawColor();
     } else if (USE_CUDA_RASTERIZER) {
 			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
 			glBindTexture(GL_TEXTURE_2D, displayImage);
@@ -106,55 +104,6 @@ void mainLoop() {
 //-------------------------------
 //---------RUNTIME STUFF---------
 //-------------------------------
-
-void computeMatricesFromInputs() {
-
-  //Compute the current time
-  double currentTime = glfwGetTime();
-  float deltaTime = float(currentTime = lastTime);
-  lastTime = currentTime;
-
-  //Only use the mouse if the left button is clicked
-  if (LB) {
-    //Read the mouse position
-    double xpos, ypos;
-    glfwGetCursorPos(window, &xpos, &ypos); 
-
-    //Reset the mouse position to the center
-    glfwSetCursorPos(window, width/2, height/2);
-
-    //Compute the viewing angle
-    horizontalAngle += mouseSpeed * deltaTime * float(width/2 - xpos);
-    verticalAngle += mouseSpeed * deltaTime * float(height/2 - ypos);
-  }
-
-  //Compute the direction
-  glm::vec3 direction(cos(verticalAngle) * sin(horizontalAngle), sin(verticalAngle), cos(verticalAngle)*cos(horizontalAngle));
-  glm::vec3 right = glm::vec3(sin(horizontalAngle - 3.14f/2.0f), 0, cos(horizontalAngle - 3.14f/2.0f));
-  glm::vec3 up = glm::cross(right, direction);
-
-  //Compute position from keyboard inputs
-  if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-    position += direction * deltaTime * speed;
-  }
-  if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-    position -= direction * deltaTime * speed;
-  }
-  if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-    position += right * deltaTime * speed;
-  }
-  if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-    position -= right * deltaTime * speed;
-  }
-
-  //Update the matrices
-  model = glm::mat4(1.0f);
-  view = glm::lookAt(position, position+direction, up);
-  projection = glm::perspective(FoV, (float)(width) / (float)(height), zNear, zFar);
-  modelview = view * model;
-  mvp = projection*modelview;
-
-}
 
 void runCuda() {
 	// Map OpenGL buffer object for writing from CUDA on a single GPU
@@ -189,7 +138,7 @@ void runCuda() {
 	}
 
 	cudaGLMapBufferObject((void**)&dptr, pbo);
-	octree_slam::rendering::rasterizeMesh(dptr, glm::vec2(width, height), rotationM, frame, vbo, vbosize, cbo, cbosize, ibo, ibosize, nbo, nbosize, &tex, texcoord, view, lightpos, mode, barycenter);
+	octree_slam::rendering::rasterizeMesh(dptr, glm::vec2(width, height), rotationM, frame, vbo, vbosize, cbo, cbosize, ibo, ibosize, nbo, nbosize, &tex, texcoord, camera_->view(), lightpos, mode, barycenter);
 	cudaGLUnmapBufferObject(pbo);
 
 	vbo = NULL;
@@ -229,9 +178,9 @@ void runGL() {
 	}
 
 	//Send the MV, MVP, and Normal Matrices
-	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(mvp));
-	glUniformMatrix4fv(proj_location, 1, GL_FALSE, glm::value_ptr(projection));
-	glm::mat3 norm_mat = glm::mat3(glm::transpose(glm::inverse(model)));
+	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(camera_->mvp()));
+	glUniformMatrix4fv(proj_location, 1, GL_FALSE, glm::value_ptr(camera_->projection()));
+	glm::mat3 norm_mat = glm::mat3(glm::transpose(glm::inverse(camera_->model())));
 	glUniformMatrix3fv(norm_location, 1, GL_FALSE, glm::value_ptr(norm_mat));
 
 	//Send the light position
@@ -334,21 +283,23 @@ void readBMP(const char* filename, bmp_texture &tex)
 bool init(int argc, char* argv[]) {
 	glfwSetErrorCallback(errorCallback);
 
+  //Create the camera interface
+  camera_device_ = new octree_slam::sensor::OpenNIDevice();
+
 	if (!glfwInit()) {
 		return false;
 	}
 
 	readBMP((path_prefix + string("../textures/texture1.bmp")).c_str(), tex);
-	width = 800;
-	height = 800;
-	window = glfwCreateWindow(width, height, "Voxel Rendering", NULL, NULL);
+	window = glfwCreateWindow(width, height, "Octree-SLAM", NULL, NULL);
 	if (!window){
 		glfwTerminate();
 		return false;
 	}
 	glfwMakeContextCurrent(window);
-	glfwSetMouseButtonCallback(window, MouseClickCallback);
-	glfwSetScrollCallback(window, ScrollCallback);
+
+  //Create the virtual camera controller
+  camera_ = new octree_slam::rendering::GLFWCameraController(window, width, height);
 
 	// Set up GL context
 	glewExperimental = GL_TRUE;
@@ -375,12 +326,9 @@ bool init(int argc, char* argv[]) {
                                             mesh->getBoundingBox()[8], mesh->getBoundingBox()[5], mesh->getBoundingBox()[2]);
   }
 
-  // Initialize the time
-  lastTime = glfwGetTime();
-
   //Initialize camera rendering
   if (DRAW_CAMERA_COLOR) {
-    camera_device_.initPBO();
+    camera_device_->initPBO();
     initCudaVAO();
     initCuda();
     initPassthroughShaders();
@@ -549,21 +497,4 @@ void shut_down(int return_code){
 
 void errorCallback(int error, const char* description){
 	fputs(description, stderr);
-}
-
-void MouseClickCallback(GLFWwindow *window, int button, int action, int mods){
-  if (action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
-		LB = true;
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-  }
-
-  if (action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT) {
-		LB = false;
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-  }
-}
-
-void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
-  //Update the field of view from the mouse scroll wheel
-  FoV -= 2 * yoffset;
 }

@@ -85,7 +85,9 @@
     <ClCompile Include="..\..\..\external\src\objUtil\obj.cpp" />
     <ClCompile Include="..\..\..\external\src\objUtil\objloader.cpp" />
     <ClCompile Include="..\..\..\src\main.cpp" />
+    <ClCompile Include="..\..\..\src\rendering\cuda_renderer.cpp" />
     <ClCompile Include="..\..\..\src\rendering\glfw_camera_controller.cpp" />
+    <ClCompile Include="..\..\..\src\rendering\opengl_renderer.cpp" />
     <ClCompile Include="..\..\..\src\sensor\openni_device.cpp" />
     <ClCompile Include="..\..\..\src\utilities.cpp" />
   </ItemGroup>

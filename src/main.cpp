@@ -3,50 +3,43 @@
 
 string path_prefix = "../../";
 
-//-------------------------------
-//-------------MAIN--------------
-//-------------------------------
-
 int main(int argc, char** argv){
 
 #if defined(__GNUC__)
   path_prefix = "";
 #endif
 
-	bool loadedScene = false;
-
 	int choice = 2;
 	cout << "Please enter which scene to load? '1'(dragon), '2'(cow), '3'(bunny)." << endl;
 	cin >> choice;
 
 	string local_path = path_prefix + "../objs/";
-	string data = local_path+ "2cows.obj";
+	string data = local_path;
 	if (choice == 1)
-		data = local_path+ "dragon_tex.obj";
+		data += "dragon_tex.obj";
 	else if (choice == 2)
-		data = local_path + "cow_tex.obj";
+		data += "cow_tex.obj";
   else if (choice == 3)
-    data = local_path + "bunny_tex.obj";
+    data += "bunny_tex.obj";
 
-	mesh = new obj();
-	objLoader* loader = new objLoader(data, mesh);
-	mesh->buildVBOs();
-	meshes.push_back(mesh);
+	mesh_ = new obj();
+	objLoader* loader = new objLoader(data, mesh_);
+	mesh_->buildVBOs();
+	meshes_.push_back(mesh_);
 	delete loader;
-	loadedScene = true;
 
+  //Read texture
+  readBMP((path_prefix + string("../textures/texture1.bmp")).c_str(), tex_);
 
-	frame = 0;
-	seconds = time (NULL);
-	fpstracker = 0;
+	frame_ = 0;
+	seconds_ = time (NULL);
+	fpstracker_ = 0;
 
 	// Launch CUDA/GL
 	if (init(argc, argv)) {
 
 		//Voxelize the scene
-		if (VOXELIZE) {
-		  voxelizeScene();
-		}
+    mesh_geom_ = buildScene();
 
 		// GLFW main loop
 		mainLoop();
@@ -58,174 +51,62 @@ int main(int argc, char** argv){
 
 
 void mainLoop() {
-	while(!glfwWindowShouldClose(window)){
+	while(!glfwWindowShouldClose(window_)){
     //Read a frame from OpenNI Device
-    camera_device_->readFrame();
+    if (DRAW_CAMERA_COLOR) {
+      camera_device_->readFrame();
+    }
 
     camera_->update();
 
 		if (USE_CUDA_RASTERIZER && !DRAW_CAMERA_COLOR) {
-			runCuda();
+      cuda_renderer_->render(mesh_geom_, tex_, camera_->camera(), lightpos_);
 		} else if (!DRAW_CAMERA_COLOR) {
-			runGL();
-		}
+      gl_renderer_->render(mesh_geom_, camera_->camera(), lightpos_);
+    } else {
+      //Draw the current camera color frame to the window
+      camera_device_->drawColor();
+      cuda_renderer_->render(mesh_geom_, tex_, camera_->camera(), lightpos_);
+    }
+    frame_++;
+    fpstracker_++;
 
 		time_t seconds2 = time (NULL);
 
-		if(seconds2-seconds >= 1){
+		if(seconds2-seconds_ >= 1){
 
-			fps = fpstracker/(seconds2-seconds);
-			fpstracker = 0;
-			seconds = seconds2;
+			fps_ = fpstracker_/(seconds2-seconds_);
+			fpstracker_ = 0;
+			seconds_ = seconds2;
 		}
 
-		string title = "Octree-SLAM | " + utilityCore::convertIntToString((int)fps) + " FPS";
-		glfwSetWindowTitle(window, title.c_str());
+		string title = "Octree-SLAM | " + utilityCore::convertIntToString((int)fps_) + " FPS";
+		glfwSetWindowTitle(window_, title.c_str());
 
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    if (DRAW_CAMERA_COLOR) {
-      //Draw the current camera color frame to the window
-      camera_device_->drawColor();
-    } else if (USE_CUDA_RASTERIZER) {
-			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-			glBindTexture(GL_TEXTURE_2D, displayImage);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, NULL);  
-			glDrawElements(GL_TRIANGLES, 6,  GL_UNSIGNED_SHORT, 0);
-		} else {
-			glDrawArrays(GL_TRIANGLES, 0, vbosize);
-		}
-
-		glfwSwapBuffers(window);
+		glfwSwapBuffers(window_);
 	}
-	glfwDestroyWindow(window);
+	glfwDestroyWindow(window_);
 	glfwTerminate();
 }
 
-//-------------------------------
-//---------RUNTIME STUFF---------
-//-------------------------------
-
-void runCuda() {
-	// Map OpenGL buffer object for writing from CUDA on a single GPU
-	// No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
-	dptr=NULL;
-
-	glm::mat4 rotationM = glm::rotate(glm::mat4(1.0f), 0.0f, glm::vec3(1.0f, 0.0f, 0.0f))*glm::rotate(glm::mat4(1.0f), 20.0f-0.5f*frame, glm::vec3(0.0f, 1.0f, 0.0f))*glm::rotate(glm::mat4(1.0f), 0.0f, glm::vec3(0.0f, 0.0f, 1.0f));
-
-  float newcbo[] = { 0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0,
-    1.0, 0.0, 0.0 };
-
-	//Update data
-	if (VOXELIZE) {
-		vbo = m_vox.vbo;
-		vbosize = m_vox.vbosize;
-    cbo = newcbo;
-    cbosize = 9;
-		ibo = m_vox.ibo;
-		ibosize = m_vox.ibosize;
-		nbo = m_vox.nbo;
-		nbosize = m_vox.nbosize;
-	} else {
-		vbo = mesh->getVBO();
-		vbosize = mesh->getVBOsize();
-		cbo = newcbo;
-		cbosize = 9;
-		ibo = mesh->getIBO();
-		ibosize = mesh->getIBOsize();
-		nbo = mesh->getNBO();
-		nbosize = mesh->getNBOsize();
-	}
-
-	cudaGLMapBufferObject((void**)&dptr, pbo);
-	octree_slam::rendering::rasterizeMesh(dptr, glm::vec2(width, height), rotationM, frame, vbo, vbosize, cbo, cbosize, ibo, ibosize, nbo, nbosize, &tex, texcoord, camera_->view(), lightpos, mode, barycenter);
-	cudaGLUnmapBufferObject(pbo);
-
-	vbo = NULL;
-	cbo = NULL;
-	ibo = NULL;
-
-	frame++;
-	fpstracker++;
-
-}
-
-void runGL() {
-
-  float newcbo[] = { 0.0, 1.0, 0.0,
-    0.0, 0.0, 1.0,
-    1.0, 0.0, 0.0 };
-
-	//Update data
-	if (VOXELIZE) {
-		vbo = m_vox.vbo;
-		vbosize = m_vox.vbosize;
-    cbo = m_vox.cbo;
-    cbosize = m_vox.cbosize;
-		ibo = m_vox.ibo;
-		ibosize = m_vox.ibosize;
-		nbo = m_vox.nbo;
-		nbosize = m_vox.nbosize;
-	} else {
-		vbo = mesh->getVBO();
-		vbosize = mesh->getVBOsize();
-		cbo = newcbo;
-		cbosize = 9;
-		ibo = mesh->getIBO();
-		ibosize = mesh->getIBOsize();
-		nbo = mesh->getNBO();
-		nbosize = mesh->getNBOsize();
-	}
-
-	//Send the MV, MVP, and Normal Matrices
-	glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(camera_->mvp()));
-	glUniformMatrix4fv(proj_location, 1, GL_FALSE, glm::value_ptr(camera_->projection()));
-	glm::mat3 norm_mat = glm::mat3(glm::transpose(glm::inverse(camera_->model())));
-	glUniformMatrix3fv(norm_location, 1, GL_FALSE, glm::value_ptr(norm_mat));
-
-	//Send the light position
-	glUniform3fv(light_location, 1, glm::value_ptr(lightpos));
-
-	// Send the VBO and NB0
-	glBindBuffer(GL_ARRAY_BUFFER, buffers[0]);
-	glBufferData(GL_ARRAY_BUFFER, vbosize*sizeof(float), vbo, GL_DYNAMIC_DRAW);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-	glEnableVertexAttribArray(0);
-
-	glBindBuffer(GL_ARRAY_BUFFER, buffers[1]);
-	glBufferData(GL_ARRAY_BUFFER, nbosize*sizeof(float), nbo, GL_DYNAMIC_DRAW);
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-	glEnableVertexAttribArray(1);
-
-  if (VOXELIZE) {
-    glBindBuffer(GL_ARRAY_BUFFER, buffers[2]);
-    glBufferData(GL_ARRAY_BUFFER, cbosize*sizeof(float), cbo, GL_DYNAMIC_DRAW);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-    glEnableVertexAttribArray(2);
-  }
-
-	frame++;
-	fpstracker++;
-}
-
-//-------------------------------
-//----------SETUP STUFF----------
-//-------------------------------
-
-void voxelizeScene() {
+Mesh buildScene() {
 
 	//Construct target mesh
 	Mesh m_in;
-	m_in.vbo = mesh->getVBO();
-	m_in.vbosize = mesh->getVBOsize();
-	m_in.nbo = mesh->getNBO();
-	m_in.nbosize = mesh->getNBOsize();
-	m_in.cbo = mesh->getCBO();
-	m_in.cbosize = mesh->getCBOsize();
-	m_in.ibo = mesh->getIBO();
-	m_in.ibosize = mesh->getIBOsize();
-  m_in.tbo = mesh->getTBO();
-  m_in.tbosize = mesh->getTBOsize();
+	m_in.vbo = mesh_->getVBO();
+	m_in.vbosize = mesh_->getVBOsize();
+	m_in.nbo = mesh_->getNBO();
+	m_in.nbosize = mesh_->getNBOsize();
+	m_in.cbo = mesh_->getCBO();
+	m_in.cbosize = mesh_->getCBOsize();
+	m_in.ibo = mesh_->getIBO();
+	m_in.ibosize = mesh_->getIBOsize();
+  m_in.tbo = mesh_->getTBO();
+  m_in.tbosize = mesh_->getTBOsize();
+
+  if (!VOXELIZE) {
+    return m_in;
+  }
 
 	//Load cube
 	Mesh m_cube;
@@ -244,11 +125,14 @@ void voxelizeScene() {
 	delete cube;
 
 	//Voxelize
+  Mesh mesh_geom;
   if (OCTREE){
-    octree_slam::svo::voxelizeSVOCubes(m_in, &tex, m_cube, m_vox);
+    octree_slam::svo::voxelizeSVOCubes(m_in, &tex_, m_cube, mesh_geom);
   } else {
-    octree_slam::voxelization::voxelizeToCubes(m_in, &tex, m_cube, m_vox);
+    octree_slam::voxelization::voxelizeToCubes(m_in, &tex_, m_cube, mesh_geom);
   }
+
+  return mesh_geom;
 }
 
 //read .bmp texture and assign it to tex
@@ -283,23 +167,19 @@ void readBMP(const char* filename, bmp_texture &tex)
 bool init(int argc, char* argv[]) {
 	glfwSetErrorCallback(errorCallback);
 
-  //Create the camera interface
-  camera_device_ = new octree_slam::sensor::OpenNIDevice();
-
 	if (!glfwInit()) {
 		return false;
 	}
 
-	readBMP((path_prefix + string("../textures/texture1.bmp")).c_str(), tex);
-	window = glfwCreateWindow(width, height, "Octree-SLAM", NULL, NULL);
-	if (!window){
+	window_ = glfwCreateWindow(width_, height_, "Octree-SLAM", NULL, NULL);
+	if (!window_){
 		glfwTerminate();
 		return false;
 	}
-	glfwMakeContextCurrent(window);
+	glfwMakeContextCurrent(window_);
 
   //Create the virtual camera controller
-  camera_ = new octree_slam::rendering::GLFWCameraController(window, width, height);
+  camera_ = new octree_slam::rendering::GLFWCameraController(window_, width_, height_);
 
 	// Set up GL context
 	glewExperimental = GL_TRUE;
@@ -307,193 +187,38 @@ bool init(int argc, char* argv[]) {
 		return false;
 	}
 
-	// Initialize other stuff
+  //Initialize camera rendering
+  if (DRAW_CAMERA_COLOR) {
+    camera_device_ = new octree_slam::sensor::OpenNIDevice();
+    camera_device_->initPBO();
+  }
+
+	// Initialize renderers
 	if (USE_CUDA_RASTERIZER) {
-		initCudaTextures();
-		initCudaVAO();
-		initCuda();
-		initCudaPBO();
-		initPassthroughShaders();
-		glActiveTexture(GL_TEXTURE0);
+    int width = DRAW_CAMERA_COLOR ? camera_device_->colorFrameWidth() : width_;
+    int height = DRAW_CAMERA_COLOR ? camera_device_->colorFrameHeight() : height_;
+    cuda_renderer_ = new octree_slam::rendering::CUDARenderer(VOXELIZE, path_prefix, width, height);
+    if (DRAW_CAMERA_COLOR) cuda_renderer_->setPBO(camera_device_->pbo());
 	} else {
-		initGL();
-		initDefaultShaders();
+    gl_renderer_ = new octree_slam::rendering::OpenGLRenderer(VOXELIZE, path_prefix);
 	}
 
   // Initialize Voxelization
   if (VOXELIZE) {
-    octree_slam::voxelization::setWorldSize(mesh->getBoundingBox()[0], mesh->getBoundingBox()[1], mesh->getBoundingBox()[18], 
-                                            mesh->getBoundingBox()[8], mesh->getBoundingBox()[5], mesh->getBoundingBox()[2]);
-  }
-
-  //Initialize camera rendering
-  if (DRAW_CAMERA_COLOR) {
-    camera_device_->initPBO();
-    initCudaVAO();
-    initCuda();
-    initPassthroughShaders();
-    glActiveTexture(GL_TEXTURE0);
+    octree_slam::voxelization::setWorldSize(mesh_->getBoundingBox()[0], mesh_->getBoundingBox()[1], mesh_->getBoundingBox()[18], 
+                                            mesh_->getBoundingBox()[8], mesh_->getBoundingBox()[5], mesh_->getBoundingBox()[2]);
   }
 
 	return true;
 }
 
-void initCudaPBO(){
-	// set up vertex data parameter
-	int num_texels = width*height;
-	int num_values = num_texels * 4;
-	int size_tex_data = sizeof(GLubyte) * num_values;
-
-	// Generate a buffer ID called a PBO (Pixel Buffer Object)
-	glGenBuffers(1, &pbo);
-
-	// Make this the current UNPACK buffer (OpenGL is state-based)
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-
-	// Allocate data for the buffer. 4-channel 8-bit image
-	glBufferData(GL_PIXEL_UNPACK_BUFFER, size_tex_data, NULL, GL_DYNAMIC_COPY);
-	cudaGLRegisterBufferObject(pbo);
-
-}
-
-void initCuda(){
-	// Use device with highest Gflops/s
-	cudaGLSetGLDevice(0);
-
-	// Clean up on program exit
-	atexit(cleanupCuda);
-}
-
-void initCudaTextures(){
-	glGenTextures(1, &displayImage);
-	glBindTexture(GL_TEXTURE_2D, displayImage);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_BGRA,
-		GL_UNSIGNED_BYTE, NULL);
-}
-
-void initCudaVAO(void){
-	GLfloat vertices[] =
-	{ 
-		-1.0f, -1.0f, 
-		1.0f, -1.0f, 
-		1.0f,  1.0f, 
-		-1.0f,  1.0f, 
-	};
-
-	GLfloat texcoords[] = 
-	{ 
-		1.0f, 1.0f,
-		0.0f, 1.0f,
-		0.0f, 0.0f,
-		1.0f, 0.0f
-	};
-
-	GLushort indices[] = { 0, 1, 3, 3, 1, 2 };
-
-	GLuint vertexBufferObjID[3];
-	glGenBuffers(3, vertexBufferObjID);
-
-	glBindBuffer(GL_ARRAY_BUFFER, vertexBufferObjID[0]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-	glVertexAttribPointer((GLuint)positionLocation, 2, GL_FLOAT, GL_FALSE, 0, 0); 
-	glEnableVertexAttribArray(positionLocation);
-
-	glBindBuffer(GL_ARRAY_BUFFER, vertexBufferObjID[1]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(texcoords), texcoords, GL_STATIC_DRAW);
-	glVertexAttribPointer((GLuint)texcoordsLocation, 2, GL_FLOAT, GL_FALSE, 0, 0);
-	glEnableVertexAttribArray(texcoordsLocation);
-
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vertexBufferObjID[2]);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-}
-
-GLuint initPassthroughShaders() {
-	const char *attribLocations[] = { "Position", "Tex" };
-	GLuint program = glslUtility::createDefaultProgram(attribLocations, 2);
-	GLint location;
-
-	glUseProgram(program);
-	if ((location = glGetUniformLocation(program, "u_image")) != -1)
-	{
-		glUniform1i(location, 0);
-	}
-
-	return program;
-}
-
-void initGL() {
-
-	glGenBuffers(3, buffers);
-	glEnable(GL_DEPTH_TEST);
-  glEnable(GL_CULL_FACE);
-
-}
-
-GLuint initDefaultShaders() {
-	const char *attribLocations[] = { "v_position", "v_normal" };
-
-  string vs, fs;
-  if (VOXELIZE) {
-    vs = path_prefix + "../shaders/voxels.vert";
-    fs = path_prefix + "../shaders/voxels.frag";
-  } else {
-    vs = path_prefix + "../shaders/default.vert";
-    fs = path_prefix + "../shaders/default.frag";
-  }
-	const char *vertShader = vs.c_str();
-  const char *fragShader = fs.c_str();
-
-	GLuint program = glslUtility::createProgram(attribLocations, 2, vertShader, fragShader);
-
-	glUseProgram(program);
-	mvp_location = glGetUniformLocation(program, "u_mvpMatrix");
-	proj_location = glGetUniformLocation(program, "u_projMatrix");
-	norm_location = glGetUniformLocation(program, "u_normMatrix");
-	light_location = glGetUniformLocation(program, "u_light");
-
-	return program;
-}
-
-//-------------------------------
-//---------CLEANUP STUFF---------
-//-------------------------------
-
-void cleanupCuda(){
-	if(pbo) deletePBO(&pbo);
-	if(displayImage) deleteTexture(&displayImage);
-}
-
-void deletePBO(GLuint* pbo){
-	if (pbo) {
-		// unregister this buffer object with CUDA
-		cudaGLUnregisterBufferObject(*pbo);
-
-		glBindBuffer(GL_ARRAY_BUFFER, *pbo);
-		glDeleteBuffers(1, pbo);
-
-		*pbo = (GLuint)NULL;
-	}
-}
-
-void deleteTexture(GLuint* tex){
-	glDeleteTextures(1, tex);
-	*tex = (GLuint)NULL;
-}
-
 void shut_down(int return_code){
-	octree_slam::rendering::kernelCleanup();
 	cudaDeviceReset();
 #ifdef __APPLE__
 	glfwTerminate();
 #endif
 	exit(return_code);
 }
-
-//------------------------------
-//-------GLFW CALLBACKS---------
-//------------------------------
 
 void errorCallback(int error, const char* description){
 	fputs(description, stderr);

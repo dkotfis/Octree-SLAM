@@ -13,6 +13,9 @@
 // Forward Declarations
 class uchar4;
 
+//Uncomment this if the device does not support color
+//#define RGB888Pixel Grayscale16Pixel
+
 namespace octree_slam {
 
 namespace sensor {

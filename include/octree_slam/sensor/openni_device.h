@@ -8,6 +8,12 @@
 // OpenNI Dependency
 #include <OpenNI.h>
 
+/* Uncomment these if the device does not support color
+#define RGB888Pixel Grayscale16Pixel
+#define SENSOR_COLOR SENSOR_IR
+#define PIXEL_FORMAT_RGB888 PIXEL_FORMAT_GRAY16
+*/
+
 namespace octree_slam {
 
 namespace sensor {
@@ -53,6 +59,9 @@ public:
   //Accessor method to the color frame height
   const int colorFrameHeight() const { return color_height_; };
 
+  //Accessor to the PBO to render
+  const GLuint pbo() const { return pbo_; };
+
 private:
 
   //Error checking function to print out ONI calls that are not successful
@@ -80,9 +89,6 @@ private:
 
   //PBO for drawing images to the screen
   GLuint pbo_ = (GLuint) NULL;
-
-  //Texture for drawing images to the screen
-  GLuint displayImage_;
 
 }; //class OpenNIDevice
 

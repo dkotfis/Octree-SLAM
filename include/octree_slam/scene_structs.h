@@ -23,15 +23,12 @@ struct bmp_texture {
   int height;
 };
 
-//Handy function for clamping between two values;
-__host__ __device__ inline float clamp(float val, float min, float max) {
-  if (val < min) {
-    val = min;
-  }
-  else if (val > max) {
-    val = max;
-  }
-  return val;
-}
+struct Camera {
+  glm::mat4 model;
+  glm::mat4 view;
+  glm::mat4 projection;
+  glm::mat4 modelview;
+  glm::mat4 mvp;
+};
 
 #endif //SCENE_STRUCTS_H_

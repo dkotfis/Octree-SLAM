@@ -14,6 +14,7 @@
 // Octree-SLAM Dependencies
 #include <octree_slam/timing_utils.h>
 #include <octree_slam/voxelization/voxelization.h>
+#include <octree_slam/cuda_common_kernels.h>
 
 namespace octree_slam {
 

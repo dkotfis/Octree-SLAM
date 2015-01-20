@@ -79,11 +79,11 @@ void GLFWCameraController::update() {
   }
 
   //Update the matrices
-  model_ = glm::mat4(1.0f);
-  view_ = glm::lookAt(position_, position_ + direction, up);
-  projection_ = glm::perspective(FoV_, (float)(width_) / (float)(height_), zNear_, zFar_);
-  modelview_ = view_ * model_;
-  mvp_ = projection_*modelview_;
+  camera_.model = glm::mat4(1.0f);
+  camera_.view = glm::lookAt(position_, position_ + direction, up);
+  camera_.projection = glm::perspective(FoV_, (float)(width_) / (float)(height_), zNear_, zFar_);
+  camera_.modelview = camera_.view * camera_.model;
+  camera_.mvp = camera_.projection*camera_.modelview;
 
 }
 

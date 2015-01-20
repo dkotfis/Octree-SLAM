@@ -138,13 +138,6 @@ long long OpenNIDevice::readFrame() {
 
 void OpenNIDevice::initPBO() {
 
-  glGenTextures(1, &displayImage_);
-  glBindTexture(GL_TEXTURE_2D, displayImage_);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, color_width_, color_height_, 0, GL_BGRA,
-    GL_UNSIGNED_BYTE, NULL);
-
   // set up vertex data parameter
   int num_texels = color_width_*color_height_;
   int num_values = num_texels * 4;
@@ -171,11 +164,6 @@ void OpenNIDevice::drawColor() const {
   writeColorToPBO(d_pixel_color_, dptr, color_width_*color_height_);
 
   cudaGLUnmapBufferObject(pbo_);
-
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo_);
-  glBindTexture(GL_TEXTURE_2D, displayImage_);
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, color_width_, color_height_, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-  glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
 
 }
 

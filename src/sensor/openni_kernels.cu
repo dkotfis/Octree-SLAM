@@ -23,7 +23,7 @@ __global__ void writeColorToPBOKernel(const openni::RGB888Pixel* color_pixels, u
 
   // Each thread writes one pixel location in the texture (textel)
   pbo[idx].w = 0;
-  pbo[idx].x = value.r;
+  pbo[idx].x = value.r; //Make these just "value" if the device does not support color
   pbo[idx].y = value.g;
   pbo[idx].z = value.b;
 

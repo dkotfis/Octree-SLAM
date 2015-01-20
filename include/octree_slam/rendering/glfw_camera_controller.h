@@ -5,6 +5,9 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
+// Octree-SLAM Deependency
+#include <octree_slam/scene_structs.h>
+
 namespace octree_slam {
 
 namespace rendering {
@@ -19,10 +22,7 @@ public:
 
   void update();
 
-  const glm::mat4 model() const { return model_; };
-  const glm::mat4 view() const { return view_; };
-  const glm::mat4 projection() const { return projection_; };
-  const glm::mat4 mvp() const { return mvp_; };
+  const Camera camera() const { return camera_; };
 
 private:
 
@@ -45,11 +45,7 @@ private:
   int height_;
 
   //Camera matrices
-  glm::mat4 projection_;
-  glm::mat4 model_;
-  glm::mat4 view_;
-  glm::mat4 modelview_;
-  glm::mat4 mvp_;
+  Camera camera_;
 
   GLFWwindow* window_;
 

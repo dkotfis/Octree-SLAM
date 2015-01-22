@@ -90,14 +90,16 @@
     <ClCompile Include="..\..\..\src\rendering\opengl_renderer.cpp" />
     <ClCompile Include="..\..\..\src\sensor\openni_device.cpp" />
     <ClCompile Include="..\..\..\src\utilities.cpp" />
+    <ClCompile Include="..\..\..\src\world\octree.cpp" />
+    <ClCompile Include="..\..\..\src\world\scene.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="..\..\..\external\src\voxelpipe\compact_ranges.cu" />
     <CudaCompile Include="..\..\..\src\rendering\rasterize_kernels.cu" />
     <CudaCompile Include="..\..\..\src\sensor\openni_kernels.cu" />
-    <CudaCompile Include="..\..\..\src\svo\svo.cu" />
     <CudaCompile Include="..\..\..\src\timing_utils.cu" />
-    <CudaCompile Include="..\..\..\src\voxelization\voxelization.cu" />
+    <CudaCompile Include="..\..\..\src\world\svo\svo.cu" />
+    <CudaCompile Include="..\..\..\src\world\voxelization\voxelization.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

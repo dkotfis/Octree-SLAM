@@ -1,8 +1,9 @@
-#ifndef VOXELIZATION_H_
-#define VOXELIZATION_H_
+#ifndef VOXELIZATION_UTILS_H_
+#define VOXELIZATION_UTILS_H_
 
 #include <cuda.h>
 
+// Octree-SLAM Dependencies
 #include <octree_slam/common_types.h>
 
 namespace octree_slam {
@@ -21,10 +22,8 @@ const int M = 1 << (log_N - log_T); //M is the total number of tiles (per dimens
 const int T = 1 << log_T; //T is the tile size - voxels per tile (per dimension)
 
 struct gridParams {
-
   float vox_size;
   float3 bbox0, bbox1, t_d, p_d;
-
 };
 
 __device__ inline float3 getCenterFromIndex(int idx, int M, int T, float3 bbox0, float3 t_d, float3 p_d) {
@@ -48,14 +47,10 @@ __host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_
 
 __host__ void extractCubesFromVoxelGrid(int* d_voxels, int numVoxels, int* d_values, Mesh &m_cube, Mesh &m_out);
 
-__host__ void voxelizeToCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out);
-
-__host__ void setWorldSize(float minx, float miny, float minz, float maxx, float maxy, float maxz);
-
 __host__ gridParams getParams();
 
 } // namespace voxelization
 
 } // namespace octree_slam
 
-#endif ///VOXELIZATION_H_
+#endif ///VOXELIZATION_UTILS_H_

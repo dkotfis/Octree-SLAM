@@ -7,8 +7,8 @@
 
 // Octree-SLAM Dependencies
 #include <octree_slam/timing_utils.h>
-#include <octree_slam/voxelization/voxelization.h>
-#include <octree_slam/svo/svo.h>
+#include <octree_slam/world/voxelization/voxelization_utils.h>
+#include <octree_slam/world/svo/svo.h>
 
 namespace octree_slam {
 
@@ -265,7 +265,7 @@ __global__ void createCubeMeshFromSVO(int* octree, int* counter, int total_depth
 }
 
 //This is based on Cyril Crassin's approach
-__host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_octree, cudaArray* d_bricks) {
+extern "C" void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_octree, cudaArray* d_bricks) {
   int numNodes = 8;
   std::stack<int> startingNodes;
   startingNodes.push(0);
@@ -327,7 +327,7 @@ __host__ void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_
   }
 }
 
-__host__ void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Mesh &m_out) {
+extern "C" void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Mesh &m_out) {
 
   //Move cube data to GPU
   thrust::device_vector<float> d_vbo_cube(m_cube.vbo, m_cube.vbo + m_cube.vbosize);
@@ -396,7 +396,7 @@ __host__ void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Me
   cudaFree(d_counter);
 }
 
-__host__ void voxelizeSVOCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out) {
+extern "C" void voxelizeSVOCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out) {
 
   //Voxelize the mesh input
   int numVoxels = voxelization::N * voxelization::N * voxelization::N;

@@ -2,14 +2,12 @@
 #ifndef MAIN_H_
 #define MAIN_H_
 
+#include <string>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <stdlib.h>
-#include <string>
 #include <time.h>
-
-#include <objUtil/objloader.h>
 
 // GL Dependencies
 #include <GL/glew.h>
@@ -19,12 +17,11 @@
 // Octree-SLAM Dependencies
 #include <octree_slam/utilities.h>
 #include <octree_slam/common_types.h>
-#include <octree_slam/voxelization/voxelization.h>
-#include <octree_slam/svo/svo.h>
 #include <octree_slam/rendering/glfw_camera_controller.h>
 #include <octree_slam/rendering/opengl_renderer.h>
 #include <octree_slam/rendering/cuda_renderer.h>
 #include <octree_slam/sensor/openni_device.h>
+#include <octree_slam/world/scene.h>
 
 #define DRAW_CAMERA_COLOR 0
 #define DRAW_CAMERA_DEPTH 0
@@ -54,6 +51,9 @@ octree_slam::rendering::OpenGLRenderer* gl_renderer_;
 //CUDA Rendering engine
 octree_slam::rendering::CUDARenderer* cuda_renderer_;
 
+//Scene object
+octree_slam::world::Scene* scene_;
+
 int frame_;
 int fpstracker_;
 double seconds_;
@@ -62,22 +62,10 @@ int fps_ = 0;
 //Rendering window
 GLFWwindow *window_;
 
-//Texture information
-bmp_texture tex_;
-
-//Mesh geometry representation
-obj* mesh_;
-vector <obj*> meshes_;
-Mesh mesh_geom_;
-
 int main(int argc, char** argv);
 
 bool init(int argc, char* argv[]);
 void mainLoop();
 void errorCallback(int error, const char *description);
-
-void loadMultipleObj(int choice, int type);
-void readBMP(const char* filename, bmp_texture &tex);
-Mesh buildScene();
 
 #endif

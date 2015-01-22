@@ -31,4 +31,18 @@ struct Camera {
   glm::mat4 mvp;
 };
 
+struct Color256 {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+};
+
+struct Frame {
+  Color256* color;
+  glm::vec3* vertex;
+  glm::vec3* normal;
+  int width;
+  int height;
+};
+
 #endif //SCENE_STRUCTS_H_

@@ -5,14 +5,12 @@
 
 // CUDA Dependencies
 #include <cuda_runtime.h>
-#include <cuda_gl_interop.h>
 
 namespace octree_slam {
 
 namespace sensor {
 
-OpenNIDevice::OpenNIDevice() : depth_width_(0), depth_height_(0), 
-  color_width_(0), color_height_(0) {
+OpenNIDevice::OpenNIDevice() {
 
   //Initialize openni
   checkONIError(openni::OpenNI::initialize());
@@ -42,25 +40,25 @@ OpenNIDevice::OpenNIDevice() : depth_width_(0), depth_height_(0),
   //Initialize sizes with first frame
   openni::VideoFrameRef frame;
   checkONIError(depth_->readFrame(&frame));
-  depth_width_ = frame.getWidth();
-  depth_height_ = frame.getHeight();
-  printf("[OpenNIDevice] Initialized depth to %d by %d. \n", depth_width_, depth_height_);
+  frame_.width = frame.getWidth();
+  frame_.height = frame.getHeight();
+  printf("[OpenNIDevice] Initialized frame to %d by %d. \n", frame_.width, frame_.height);
+  //TODO: Check whether the color frame is the same size, and do something if it is not
+  /*
   checkONIError(color_->readFrame(&frame));
   color_width_ = frame.getWidth();
   color_height_ = frame.getHeight();
   printf("[OpenNIDevice] Initialized color to %d by %d. \n", color_width_, color_height_);
+  */
 
   //Compute focal lengths
-  depth_focal_.x = 2.0f * atan(0.5f * (float) depth_width_ / depth_->getHorizontalFieldOfView());
-  depth_focal_.y = 2.0f * atan(0.5f * (float) depth_height_ / depth_->getVerticalFieldOfView());
-  color_focal_.x = 2.0f * atan(0.5f * (float) color_width_ / color_->getHorizontalFieldOfView());
-  color_focal_.y = 2.0f * atan(0.5f * (float) color_height_ / color_->getVerticalFieldOfView());
+  depth_focal_.x = 2.0f * atan(0.5f * (float) frame_.width / depth_->getHorizontalFieldOfView());
+  depth_focal_.y = 2.0f * atan(0.5f * (float) frame_.height / depth_->getVerticalFieldOfView());
 
   //Allocate GPU memory for frames
-  cudaMalloc((void**) &d_pixel_depth_, depth_width_*depth_height_*sizeof(openni::DepthPixel));
-  cudaMalloc((void**) &d_pixel_color_, color_width_*color_height_*sizeof(openni::RGB888Pixel));
-  cudaMalloc((void**) &d_vertex_map_, depth_width_*depth_height_*sizeof(glm::vec3));
-  cudaMalloc((void**) &d_normal_map_, depth_width_*depth_height_*sizeof(glm::vec3));
+  cudaMalloc((void**) &frame_.color, frame_.width*frame_.height*sizeof(uchar3));
+  cudaMalloc((void**) &frame_.vertex, frame_.width*frame_.height*sizeof(glm::vec3));
+  cudaMalloc((void**) &frame_.normal, frame_.width*frame_.height*sizeof(glm::vec3));
 }
 
 OpenNIDevice::~OpenNIDevice() {
@@ -83,13 +81,15 @@ OpenNIDevice::~OpenNIDevice() {
   openni::OpenNI::shutdown();
   
   //Clean up CUDA memory
-  cudaFree(&d_pixel_depth_);
-  cudaFree(&d_pixel_color_);
-  cudaFree(&d_vertex_map_);
-  cudaFree(&d_normal_map_);
+  cudaFree(&frame_.color);
+  cudaFree(&frame_.vertex);
+  cudaFree(&frame_.normal);
 }
 
 long long OpenNIDevice::readFrame() {
+  //Temporarily allocate GPU memory for the raw depth frame
+  cudaMalloc((void**)&d_pixel_depth_, frame_.width*frame_.height*sizeof(openni::DepthPixel));
+
   //Read a depth frame from the device
   openni::VideoFrameRef frame;
   checkONIError(depth_->readFrame(&frame));
@@ -101,20 +101,21 @@ long long OpenNIDevice::readFrame() {
   }
 
   //Verify size of frame
-  if (depth_width_ != frame.getWidth() || depth_height_ != frame.getHeight()) {
+  if (frame_.width != frame.getWidth() || frame_.height != frame.getHeight()) {
     printf("[OpenNIDevice] ERROR: Received a frame of unexpected size.");
   }
 
   //Get timestamp from frame
+  //TODO: Skip the frame if we've already seen this timestamp
   long long timestamp = (long long)frame.getTimestamp();
 
   //Get data from frame and copy to GPU
   openni::DepthPixel* pixel_depth = (openni::DepthPixel*) frame.getData();
-  cudaMemcpy(d_pixel_depth_, pixel_depth, depth_width_*depth_height_*sizeof(openni::DepthPixel), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_pixel_depth_, pixel_depth, frame_.width*frame_.height*sizeof(openni::DepthPixel), cudaMemcpyHostToDevice);
 
   //Generate vertex and normal maps from the data
-  generateVertexMap(d_pixel_depth_, d_vertex_map_, depth_width_, depth_height_, depth_focal_);
-  generateNormalMap(d_vertex_map_, d_normal_map_, depth_width_, depth_height_);
+  generateVertexMap(d_pixel_depth_, frame_.vertex, frame_.width, frame_.height, depth_focal_);
+  generateNormalMap(frame_.vertex, frame_.normal, frame_.width, frame_.height);
 
   //Read a color frame from the device
   checkONIError(color_->readFrame(&frame));
@@ -125,46 +126,20 @@ long long OpenNIDevice::readFrame() {
   }
 
   //Verify size of frame
-  if (color_width_ != frame.getWidth() || color_height_ != frame.getHeight()) {
+  if (frame_.width != frame.getWidth() || frame_.height != frame.getHeight()) {
     printf("[OpenNIDevice] ERROR: Received a frame of unexpected size.");
   }
 
+  //TODO: Check the timestamp of the color frame
+
   //Get data from frame and copy to GPU
   openni::RGB888Pixel* pixel_color = (openni::RGB888Pixel*) frame.getData();
-  cudaMemcpy(d_pixel_color_, pixel_color, color_width_*color_height_*sizeof(openni::RGB888Pixel), cudaMemcpyHostToDevice);
+  cudaMemcpy(frame_.color, pixel_color, frame_.width*frame_.height*sizeof(openni::RGB888Pixel), cudaMemcpyHostToDevice);
+
+  //Free up GPU memory now that the depth frame is not needed 
+  cudaFree(&d_pixel_depth_);
 
   return timestamp;
-}
-
-void OpenNIDevice::initPBO() {
-
-  // set up vertex data parameter
-  int num_texels = color_width_*color_height_;
-  int num_values = num_texels * 4;
-  int size_tex_data = sizeof(GLubyte) * num_values;
-
-  // Generate a buffer ID called a PBO (Pixel Buffer Object)
-  glGenBuffers(1, &pbo_);
-
-  // Make this the current UNPACK buffer (OpenGL is state-based)
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo_);
-
-  // Allocate data for the buffer. 4-channel 8-bit image
-  glBufferData(GL_PIXEL_UNPACK_BUFFER, size_tex_data, NULL, GL_DYNAMIC_COPY);
-  cudaGLRegisterBufferObject(pbo_);
-
-}
-
-void OpenNIDevice::drawColor() const {
-
-  uchar4 *dptr;
-  cudaGLMapBufferObject((void**)&dptr, pbo_);
-
-  //Convert color frame to pbo format
-  writeColorToPBO(d_pixel_color_, dptr, color_width_*color_height_);
-
-  cudaGLUnmapBufferObject(pbo_);
-
 }
 
 void OpenNIDevice::checkONIError(const openni::Status& error) {

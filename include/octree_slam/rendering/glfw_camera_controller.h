@@ -6,7 +6,7 @@
 #include <glm/glm.hpp>
 
 // Octree-SLAM Deependency
-#include <octree_slam/scene_structs.h>
+#include <octree_slam/common_types.h>
 
 namespace octree_slam {
 

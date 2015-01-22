@@ -18,7 +18,7 @@
 
 // Octree-SLAM Dependencies
 #include <octree_slam/utilities.h>
-#include <octree_slam/scene_structs.h>
+#include <octree_slam/common_types.h>
 #include <octree_slam/voxelization/voxelization.h>
 #include <octree_slam/svo/svo.h>
 #include <octree_slam/rendering/glfw_camera_controller.h>
@@ -37,7 +37,7 @@
 //-------------------------------
 
 //Screen/input parameters
-int width_ = 800; int height_ = 800;
+int width_ = 1280; int height_ = 960;
 
 //Light position
 glm::vec3 lightpos_ = glm::vec3(0, 2.0f, 2.0f);

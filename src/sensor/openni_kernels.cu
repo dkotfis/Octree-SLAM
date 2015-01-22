@@ -9,31 +9,6 @@ namespace octree_slam {
 
 namespace sensor {
 
-__global__ void writeColorToPBOKernel(const openni::RGB888Pixel* color_pixels, uchar4* pbo, const int num_pixels) {
-  
-  int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
-
-  //Don't do anything if the index is out of bounds
-  if (idx >= num_pixels) {
-    return;
-  }
-
-  //Grab the pixel value once from global memory
-  openni::RGB888Pixel value = color_pixels[idx];
-
-  // Each thread writes one pixel location in the texture (textel)
-  pbo[idx].w = 0;
-  pbo[idx].x = value.r; //Make these just "value" if the device does not support color
-  pbo[idx].y = value.g;
-  pbo[idx].z = value.b;
-
-}
-
-extern "C" void writeColorToPBO(const openni::RGB888Pixel* color_pixels, uchar4* pbo, const int num_pixels) {
-  writeColorToPBOKernel<<<num_pixels/256 + 1, 256>>>(color_pixels, pbo, num_pixels);
-  cudaDeviceSynchronize();
-}
-
 __global__ void generateVertexMapKernel(const openni::DepthPixel* depth_pixels, glm::vec3* vertex_map, const int width, const int height, const glm::vec2 focal_length) {
   int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 

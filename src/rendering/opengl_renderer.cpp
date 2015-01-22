@@ -50,7 +50,7 @@ OpenGLRenderer::~OpenGLRenderer() {
 
 }
 
-void OpenGLRenderer::render(const Mesh& geometry, const Camera& camera, const glm::vec3& light) {
+void OpenGLRenderer::rasterize(const Mesh& geometry, const Camera& camera, const glm::vec3& light) {
 
   //Send the MV, MVP, and Normal Matrices
   glUniformMatrix4fv(mvp_location_, 1, GL_FALSE, glm::value_ptr(camera.mvp));

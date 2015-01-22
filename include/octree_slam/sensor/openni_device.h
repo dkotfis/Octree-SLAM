@@ -8,6 +8,9 @@
 // OpenNI Dependency
 #include <OpenNI.h>
 
+// Octree-SLAM Dependency
+#include <octree_slam/common_types.h>
+
 /* Uncomment these if the device does not support color
 #define RGB888Pixel Grayscale16Pixel
 #define SENSOR_COLOR SENSOR_IR
@@ -34,33 +37,14 @@ public:
   //Return timestamp
   long long readFrame();
 
-  //Function for initializing a pixel buffer object for rendering debug
-  void initPBO();
+  //Accessor method to the current data frame
+  const Frame frame() const { return frame_; };
 
-  //Function for drawing the current color frame to the screen
-  //Requires initPBO to have been called first
-  void drawColor() const;
+  //Accessor method to the frame width
+  const int frameWidth() const { return frame_.width; };
 
-  //Accessor method to the GPU depth data
-  const openni::DepthPixel* depthFrameGPU() const { return d_pixel_depth_; };
-
-  //Accessor method to the GPU color data
-  const openni::RGB888Pixel* colorFrameGPU() const { return d_pixel_color_; };
-
-  //Accessor method to the depth frame width
-  const int depthFrameWidth() const { return depth_width_; };
-
-  //Accessor method to the depth frame height
-  const int depthFrameHeight() const { return depth_height_; };
-
-  //Accessor method to the color frame width
-  const int colorFrameWidth() const { return color_width_; };
-
-  //Accessor method to the color frame height
-  const int colorFrameHeight() const { return color_height_; };
-
-  //Accessor to the PBO to render
-  const GLuint pbo() const { return pbo_; };
+  //Accessor method to the frame height
+  const int frameHeight() const { return frame_.height; };
 
 private:
 
@@ -74,21 +58,14 @@ private:
   openni::VideoStream* depth_;
   openni::VideoStream* color_;
 
-  //Sizes of frames
-  int depth_width_, depth_height_, color_width_, color_height_;
+  //Camera frame data
+  Frame frame_;
 
-  //Focal lenfths
+  //Focal length
   glm::vec2 depth_focal_;
-  glm::vec2 color_focal_;
 
   //Current frame data in GPU memory
   openni::DepthPixel* d_pixel_depth_;
-  openni::RGB888Pixel* d_pixel_color_;
-  glm::vec3* d_vertex_map_;
-  glm::vec3* d_normal_map_;
-
-  //PBO for drawing images to the screen
-  GLuint pbo_ = (GLuint) NULL;
 
 }; //class OpenNIDevice
 

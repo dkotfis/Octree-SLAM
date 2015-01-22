@@ -5,7 +5,7 @@
 #include <glm/glm.hpp>
 
 // Octree-SLAM Dependencies
-#include <octree_slam/scene_structs.h>
+#include <octree_slam/common_types.h>
 
 namespace octree_slam {
 
@@ -19,7 +19,7 @@ public:
 
   ~OpenGLRenderer();
 
-  void render(const Mesh& geometry, const Camera& camera, const glm::vec3& light);
+  void rasterize(const Mesh& geometry, const Camera& camera, const glm::vec3& light);
 
 private:
 

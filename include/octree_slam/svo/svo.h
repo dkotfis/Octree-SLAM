@@ -3,7 +3,7 @@
 
 #include <cuda.h>
 
-#include <octree_slam/scene_structs.h>
+#include <octree_slam/common_types.h>
 
 #define SVO_RES 8
 #define USE_BRICK_POOL false

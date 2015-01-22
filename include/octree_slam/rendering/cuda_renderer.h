@@ -5,7 +5,7 @@
 #include <glm/glm.hpp>
 
 // Octree-SLAM Dependencies
-#include <octree_slam/scene_structs.h>
+#include <octree_slam/common_types.h>
 
 namespace octree_slam {
 
@@ -19,9 +19,9 @@ public:
 
   ~CUDARenderer();
 
-  void render(const Mesh& geometry, const bmp_texture& texture, const Camera& camera, const glm::vec3& light);
+  void rasterize(const Mesh& geometry, const bmp_texture& texture, const Camera& camera, const glm::vec3& light);
 
-  void setPBO(const GLuint pbo) { pbo_ = pbo; use_other_pbo_ = true; };
+  void pixelPassthrough(const Color256* pixel_colors);
 
 private:
 
@@ -35,7 +35,6 @@ private:
   GLuint displayImage_;
 
   GLuint pbo_;
-  bool use_other_pbo_;
 
   int frame_;
 

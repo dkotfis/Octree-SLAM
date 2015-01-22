@@ -20,9 +20,6 @@ namespace octree_slam {
 
 namespace sensor {
 
-//Helper function for CUDA Kernel that converts a color frame to PBO format for rendering
-extern "C" void writeColorToPBO(const openni::RGB888Pixel* color_pixels, uchar4* pbo, const int num_pixels);
-
 //Helper function for CUDA Kernel that generates a vertex map from a depth image
 extern "C" void generateVertexMap(const openni::DepthPixel* depth_pixels, glm::vec3* vertex_map, const int width, const int height, const glm::vec2 focal_length);
 

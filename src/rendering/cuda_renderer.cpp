@@ -20,7 +20,7 @@ namespace rendering {
 
 float CUDARenderer::newcbo_[9] = { 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0 };
 
-CUDARenderer::CUDARenderer(const bool voxelize, const std::string& path_prefix, const int width, const int height) : voxelized_(voxelize), width_(width), height_(height), pbo_((GLuint)NULL), use_other_pbo_(false), frame_(0) {
+CUDARenderer::CUDARenderer(const bool voxelize, const std::string& path_prefix, const int width, const int height) : voxelized_(voxelize), width_(width), height_(height), pbo_((GLuint)NULL), frame_(0) {
   //Init textures
   glGenTextures(1, &displayImage_);
   glBindTexture(GL_TEXTURE_2D, displayImage_);
@@ -112,22 +112,38 @@ CUDARenderer::~CUDARenderer() {
   octree_slam::rendering::kernelCleanup();
 }
 
-void CUDARenderer::render(const Mesh& geometry, const bmp_texture& texture, const Camera& camera, const glm::vec3& light) {
+void CUDARenderer::rasterize(const Mesh& geometry, const bmp_texture& texture, const Camera& camera, const glm::vec3& light) {
 
   // Map OpenGL buffer object for writing from CUDA on a single GPU
   // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
   uchar4 *dptr = NULL;
   std::vector<glm::vec4>* texcoord = NULL;
 
-  if (!use_other_pbo_) {
-    glm::mat4 rotationM = glm::rotate(glm::mat4(1.0f), 0.0f, glm::vec3(1.0f, 0.0f, 0.0f))*glm::rotate(glm::mat4(1.0f), 20.0f - 0.5f*frame_, glm::vec3(0.0f, 1.0f, 0.0f))*glm::rotate(glm::mat4(1.0f), 0.0f, glm::vec3(0.0f, 0.0f, 1.0f));
+  glm::mat4 rotationM = glm::rotate(glm::mat4(1.0f), 0.0f, glm::vec3(1.0f, 0.0f, 0.0f))*glm::rotate(glm::mat4(1.0f), 20.0f - 0.5f*frame_, glm::vec3(0.0f, 1.0f, 0.0f))*glm::rotate(glm::mat4(1.0f), 0.0f, glm::vec3(0.0f, 0.0f, 1.0f));
 
-    cudaGLMapBufferObject((void**)&dptr, pbo_);
-    octree_slam::rendering::rasterizeMesh(dptr, glm::vec2(width_, height_), rotationM, frame_, geometry.vbo, geometry.vbosize,
-      newcbo_, 9, geometry.ibo, geometry.ibosize, geometry.nbo, geometry.nbosize, &texture, texcoord,
-      camera.view, light, 0, false);
-    cudaGLUnmapBufferObject(pbo_);
-  }
+  cudaGLMapBufferObject((void**)&dptr, pbo_);
+  octree_slam::rendering::rasterizeMesh(dptr, glm::vec2(width_, height_), rotationM, frame_, geometry.vbo, geometry.vbosize,
+    newcbo_, 9, geometry.ibo, geometry.ibosize, geometry.nbo, geometry.nbosize, &texture, texcoord,
+    camera.view, light, 0, false);
+  cudaGLUnmapBufferObject(pbo_);
+
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo_);
+  glBindTexture(GL_TEXTURE_2D, displayImage_);
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+  glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+
+  frame_++;
+}
+
+void CUDARenderer::pixelPassthrough(const Color256* pixel_colors) {
+  // Map OpenGL buffer object for writing from CUDA on a single GPU
+  // No data is moved (Win & Linux). When mapped to CUDA, OpenGL should not use this buffer
+  uchar4 *dptr = NULL;
+
+  cudaGLMapBufferObject((void**)&dptr, pbo_);
+  writeColorToPBO(pixel_colors, dptr, width_*height_);
+  cudaGLUnmapBufferObject(pbo_);
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo_);

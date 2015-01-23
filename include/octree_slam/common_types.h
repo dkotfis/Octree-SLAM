@@ -1,6 +1,7 @@
 #ifndef SCENE_STRUCTS_H_
 #define SCENE_STRUCTS_H_
 
+#include <stdint.h>
 #include "glm/glm.hpp"
 
 //This is a lighter weight version of obj

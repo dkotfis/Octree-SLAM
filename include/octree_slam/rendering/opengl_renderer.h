@@ -21,11 +21,18 @@ public:
 
   void rasterize(const Mesh& geometry, const Camera& camera, const glm::vec3& light);
 
+  void renderPoints(const Frame& frame, const Camera& camera);
+
 private:
 
   static float newcbo_[9];
 
   const bool voxelized_;
+
+  //GLSL Programs
+  GLuint default_program_;
+  GLuint voxel_program_;
+  GLuint points_program_;
 
   // Uniform locations for the shaders
   GLuint mvp_location_;

@@ -24,7 +24,7 @@
 #include <octree_slam/world/scene.h>
 
 #define DRAW_CAMERA_COLOR 0
-#define DRAW_CAMERA_DEPTH 0
+#define DRAW_POINT_CLOUD 1
 #define USE_CUDA_RASTERIZER 0
 #define VOXELIZE 0
 #define OCTREE 0

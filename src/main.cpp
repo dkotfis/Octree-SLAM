@@ -28,19 +28,21 @@ int main(int argc, char** argv){
 void mainLoop() {
 	while(!glfwWindowShouldClose(window_)){
     //Read a frame from OpenNI Device
-    if (DRAW_CAMERA_COLOR) {
+    if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
       camera_device_->readFrame();
     }
 
     camera_->update();
 
-		if (USE_CUDA_RASTERIZER && !DRAW_CAMERA_COLOR) {
+		if (USE_CUDA_RASTERIZER) {
       cuda_renderer_->rasterize(scene_->meshes()[0], scene_->textures()[0], camera_->camera(), lightpos_);
-		} else if (!DRAW_CAMERA_COLOR) {
-      gl_renderer_->rasterize(scene_->meshes()[0], camera_->camera(), lightpos_);
-    } else {
+		} else if (DRAW_CAMERA_COLOR) {
       //Draw the current camera color frame to the window
       cuda_renderer_->pixelPassthrough(camera_device_->frame().color);
+    } else if (DRAW_POINT_CLOUD) {
+      gl_renderer_->renderPoints(camera_device_->frame(), camera_->camera());
+    } else {
+      gl_renderer_->rasterize(scene_->meshes()[0], camera_->camera(), lightpos_);
     }
     frame_++;
     fpstracker_++;
@@ -114,17 +116,16 @@ bool init(int argc, char* argv[]) {
 	}
 
   //Initialize camera rendering
-  if (DRAW_CAMERA_COLOR) {
+  if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
     camera_device_ = new octree_slam::sensor::OpenNIDevice();
-    //camera_device_->initPBO();
   }
 
 	// Initialize renderers
-	if (USE_CUDA_RASTERIZER) {
+	if (USE_CUDA_RASTERIZER || DRAW_CAMERA_COLOR) {
     int width = DRAW_CAMERA_COLOR ? camera_device_->frameWidth() : width_;
     int height = DRAW_CAMERA_COLOR ? camera_device_->frameHeight() : height_;
     cuda_renderer_ = new octree_slam::rendering::CUDARenderer(VOXELIZE, path_prefix, width, height);
-	} else {
+	} else if (DRAW_POINT_CLOUD || (!USE_CUDA_RASTERIZER && !DRAW_CAMERA_COLOR)) {
     gl_renderer_ = new octree_slam::rendering::OpenGLRenderer(VOXELIZE, path_prefix);
 	}
 

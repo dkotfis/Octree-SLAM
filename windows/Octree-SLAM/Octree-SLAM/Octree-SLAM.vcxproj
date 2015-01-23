@@ -95,6 +95,7 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="..\..\..\external\src\voxelpipe\compact_ranges.cu" />
+    <CudaCompile Include="..\..\..\src\rendering\gl_interop_kernels.cu" />
     <CudaCompile Include="..\..\..\src\rendering\rasterize_kernels.cu" />
     <CudaCompile Include="..\..\..\src\sensor\openni_kernels.cu" />
     <CudaCompile Include="..\..\..\src\timing_utils.cu" />

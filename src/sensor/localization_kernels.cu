@@ -55,6 +55,28 @@ __host__ __device__ inline Vec6 operator+(const Vec6& lhs, const Vec6& rhs) {
   return result;
 }
 
+ICPFrame::ICPFrame(const int w, const int h) : width(w), height(h) {
+  cudaMalloc((void**)&color, width*height*sizeof(Color256));
+  cudaMalloc((void**)&vertex, width*height*sizeof(glm::vec3));
+  cudaMalloc((void**)&normal, width*height*sizeof(glm::vec3));
+};
+
+ICPFrame::~ICPFrame() {
+  cudaFree(color);
+  cudaFree(vertex);
+  cudaFree(normal);
+}
+
+RGBDFrame::RGBDFrame(const int w, const int h) : width(w), height(h) {
+  cudaMalloc((void**)&intensity, width*height*sizeof(float));
+  cudaMalloc((void**)&vertex, width*height*sizeof(glm::vec3));
+}
+
+RGBDFrame::~RGBDFrame() {
+  cudaFree(intensity);
+  cudaFree(vertex);
+}
+
 __global__ void computeICPCorrespondences(const Color256* last_frame_color, const glm::vec3* last_frame_vertex, const glm::vec3* last_frame_normal, 
     const Color256* this_frame_color, const glm::vec3* this_frame_vertex, const glm::vec3* this_frame_normal, 
     const int num_points, bool* stencil, int* num_corr) {
@@ -137,7 +159,7 @@ __global__ void computeICPCostsKernel(const glm::vec3* last_frame_normal, const 
   }
 }
 
-extern "C" void computeICPCost(const Frame &last_frame, const Frame &this_frame, float* A, float* b) {
+extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_frame, float* A, float* b) {
   //TODO: Verify that the two frames are the same size
 
   //Compute correspondences 
@@ -147,7 +169,7 @@ extern "C" void computeICPCost(const Frame &last_frame, const Frame &this_frame,
   cudaMalloc((void**)&d_stencil, num_correspondences * sizeof(bool));
   cudaMalloc((void**)&d_num_corr, sizeof(int));
   cudaMemcpy(d_num_corr, &num_correspondences, sizeof(int), cudaMemcpyHostToDevice); //Initialize to the total points. Assume that most points will be valid
-  computeICPCorrespondences<<<num_correspondences / 256 + 1, 256>>>(last_frame.color, last_frame.vertex, last_frame.normal, this_frame.color, this_frame.vertex, this_frame.normal, 
+  computeICPCorrespondences<<<num_correspondences / 256 + 1, 256>>>(last_frame->color, last_frame->vertex, last_frame->normal, this_frame.color, this_frame.vertex, this_frame.normal, 
     num_correspondences, d_stencil, d_num_corr);
   cudaDeviceSynchronize();
 
@@ -162,24 +184,25 @@ extern "C" void computeICPCost(const Frame &last_frame, const Frame &this_frame,
   }
 
   //Allocate memory for reduced copies
-  Frame last_frame_reduced;
-  cudaMalloc((void**)&(last_frame_reduced.vertex), num_correspondences * sizeof(glm::vec3));
-  cudaMalloc((void**)&(last_frame_reduced.normal), num_correspondences * sizeof(glm::vec3));
-  Frame this_frame_reduced;
-  cudaMalloc((void**)&(this_frame_reduced.vertex), num_correspondences * sizeof(glm::vec3));
+  glm::vec3* last_frame_reduced_vertex;
+  cudaMalloc((void**)&last_frame_reduced_vertex, num_correspondences * sizeof(glm::vec3));
+  glm::vec3* last_frame_reduced_normal;
+  cudaMalloc((void**)&last_frame_reduced_normal, num_correspondences * sizeof(glm::vec3));
+  glm::vec3* this_frame_reduced_vertex;
+  cudaMalloc((void**)&this_frame_reduced_vertex, num_correspondences * sizeof(glm::vec3));
 
   //Reduce inputs with thrust compaction
   thrust::device_ptr<glm::vec3> in, out;
   thrust::device_ptr<bool> sten = thrust::device_pointer_cast<bool>(d_stencil);
-  in = thrust::device_pointer_cast<glm::vec3>(last_frame.vertex);
-  out = thrust::device_pointer_cast<glm::vec3>(last_frame_reduced.vertex);
-  thrust::copy_if(in, in + last_frame.width*last_frame.height, sten, out, thrust::identity<bool>());
-  in = thrust::device_pointer_cast<glm::vec3>(last_frame.normal);
-  out = thrust::device_pointer_cast<glm::vec3>(last_frame_reduced.normal);
-  thrust::copy_if(in, in + last_frame.width*last_frame.height, sten, out, thrust::identity<bool>());
+  in = thrust::device_pointer_cast<glm::vec3>(last_frame->vertex);
+  out = thrust::device_pointer_cast<glm::vec3>(last_frame_reduced_vertex);
+  thrust::copy_if(in, in + last_frame->width*last_frame->height, sten, out, thrust::identity<bool>());
+  in = thrust::device_pointer_cast<glm::vec3>(last_frame->normal);
+  out = thrust::device_pointer_cast<glm::vec3>(last_frame_reduced_normal);
+  thrust::copy_if(in, in + last_frame->width*last_frame->height, sten, out, thrust::identity<bool>());
   in = thrust::device_pointer_cast<glm::vec3>(this_frame.vertex);
-  out = thrust::device_pointer_cast<glm::vec3>(this_frame_reduced.vertex);
-  thrust::copy_if(in, in + last_frame.width*last_frame.height, sten, out, thrust::identity<bool>());
+  out = thrust::device_pointer_cast<glm::vec3>(this_frame_reduced_vertex);
+  thrust::copy_if(in, in + last_frame->width*last_frame->height, sten, out, thrust::identity<bool>());
   
   //Free device memory from data in the compaction stages
   cudaFree(d_stencil);
@@ -189,13 +212,13 @@ extern "C" void computeICPCost(const Frame &last_frame, const Frame &this_frame,
   Vec6* d_b;
   cudaMalloc((void**) &d_A, num_correspondences * sizeof(Mat6x6));
   cudaMalloc((void**) &d_b, num_correspondences * sizeof(Vec6));
-  computeICPCostsKernel<<<num_correspondences / 256 + 1, 256>>>(last_frame_reduced.normal, last_frame_reduced.vertex, this_frame_reduced.vertex, num_correspondences, d_A, d_b);
+  computeICPCostsKernel<<<num_correspondences / 256 + 1, 256>>>(last_frame_reduced_normal, last_frame_reduced_vertex, this_frame_reduced_vertex, num_correspondences, d_A, d_b);
   cudaDeviceSynchronize();
 
   //Free up device memory
-  cudaFree(last_frame_reduced.vertex);
-  cudaFree(last_frame_reduced.normal);
-  cudaFree(this_frame_reduced.vertex);
+  cudaFree(last_frame_reduced_vertex);
+  cudaFree(last_frame_reduced_normal);
+  cudaFree(this_frame_reduced_vertex);
 
   //Sum terms (reduce) with thrust
   thrust::device_ptr<Mat6x6> thrust_A = thrust::device_pointer_cast<Mat6x6>(d_A);
@@ -212,7 +235,7 @@ extern "C" void computeICPCost(const Frame &last_frame, const Frame &this_frame,
   memcpy(b, vecb.values, 6 * sizeof(float));
 }
 
-extern "C" void computeRGBDCost(const Frame& last_frame, const Frame& this_frame, float* A, float* b) {
+extern "C" void computeRGBDCost(const RGBDFrame* last_frame, const RGBDFrame& this_frame, float* A, float* b) {
   //TODO: Stuff here
   cudaDeviceSynchronize();
 }

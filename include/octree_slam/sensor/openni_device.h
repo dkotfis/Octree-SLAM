@@ -11,12 +11,6 @@
 // Octree-SLAM Dependency
 #include <octree_slam/common_types.h>
 
-/* Uncomment these if the device does not support color
-#define RGB888Pixel Grayscale16Pixel
-#define SENSOR_COLOR SENSOR_IR
-#define PIXEL_FORMAT_RGB888 PIXEL_FORMAT_GRAY16
-*/
-
 namespace octree_slam {
 
 namespace sensor {
@@ -37,14 +31,14 @@ public:
   //Return timestamp
   long long readFrame();
 
-  //Accessor method to the current data frame
-  const Frame frame() const { return frame_; };
+  //Accessor method to get the current raw frame data
+  const RawFrame* rawFrame() const { return raw_frame_; };
 
   //Accessor method to the frame width
-  const int frameWidth() const { return frame_.width; };
+  const int frameWidth() const { return raw_frame_->width; };
 
   //Accessor method to the frame height
-  const int frameHeight() const { return frame_.height; };
+  const int frameHeight() const { return raw_frame_->height; };
 
   //Accessor method to the focal length
   const glm::vec2& focalLength() const { return depth_focal_; };
@@ -61,14 +55,11 @@ private:
   openni::VideoStream* depth_;
   openni::VideoStream* color_;
 
-  //Camera frame data
-  Frame frame_;
-
   //Focal length
   glm::vec2 depth_focal_;
 
   //Current frame data in GPU memory
-  openni::DepthPixel* d_pixel_depth_;
+  RawFrame* raw_frame_;
 
 }; //class OpenNIDevice
 

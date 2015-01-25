@@ -38,12 +38,13 @@ struct Color256 {
   uint8_t b;
 };
 
-struct Frame {
+struct RawFrame {
+  RawFrame(const int w, const int h);
+  ~RawFrame();
   Color256* color;
-  glm::vec3* vertex;
-  glm::vec3* normal;
-  int width;
+  uint16_t* depth;
   int height;
+  int width;
 };
 
 #endif //SCENE_STRUCTS_H_

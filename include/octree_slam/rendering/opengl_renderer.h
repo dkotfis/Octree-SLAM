@@ -15,13 +15,13 @@ class OpenGLRenderer {
 
 public:
 
-  OpenGLRenderer(const bool voxelize, const std::string& path_prefix);
+  OpenGLRenderer(const bool voxelize, const std::string &path_prefix);
 
   ~OpenGLRenderer();
 
-  void rasterize(const Mesh& geometry, const Camera& camera, const glm::vec3& light);
+  void rasterize(const Mesh &geometry, const Camera &camera, const glm::vec3 &light);
 
-  void renderPoints(const Frame& frame, const Camera& camera);
+  void renderPoints(const glm::vec3* positions, const Color256* colors, const int num, const Camera &camera);
 
 private:
 

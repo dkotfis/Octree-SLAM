@@ -21,6 +21,7 @@
 #include <octree_slam/rendering/opengl_renderer.h>
 #include <octree_slam/rendering/cuda_renderer.h>
 #include <octree_slam/sensor/openni_device.h>
+#include <octree_slam/sensor/image_kernels.h>
 #include <octree_slam/sensor/rgbd_camera.h>
 #include <octree_slam/world/scene.h>
 
@@ -57,6 +58,7 @@ octree_slam::rendering::CUDARenderer* cuda_renderer_;
 
 //Scene object
 octree_slam::world::Scene* scene_;
+glm::vec3* points_; //TODO: Make this part of scene
 
 int frame_;
 int fpstracker_;

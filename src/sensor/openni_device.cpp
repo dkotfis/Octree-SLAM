@@ -1,7 +1,7 @@
 
 // Octree-SLAM Dependencies
 #include <octree_slam/sensor/openni_device.h>
-#include <octree_slam/sensor/openni_kernels.h>
+#include <octree_slam/sensor/image_kernels.h>
 
 // CUDA Dependencies
 #include <cuda_runtime.h>
@@ -40,9 +40,8 @@ OpenNIDevice::OpenNIDevice() {
   //Initialize sizes with first frame
   openni::VideoFrameRef frame;
   checkONIError(depth_->readFrame(&frame));
-  frame_.width = frame.getWidth();
-  frame_.height = frame.getHeight();
-  printf("[OpenNIDevice] Initialized frame to %d by %d. \n", frame_.width, frame_.height);
+  raw_frame_ = new RawFrame(frame.getWidth(), frame.getHeight());
+  printf("[OpenNIDevice] Initialized frame to %d by %d. \n", raw_frame_->width, raw_frame_->height);
   //TODO: Check whether the color frame is the same size, and do something if it is not
   /*
   checkONIError(color_->readFrame(&frame));
@@ -52,13 +51,8 @@ OpenNIDevice::OpenNIDevice() {
   */
 
   //Compute focal lengths
-  depth_focal_.x = (float) frame_.width / (2.0f * tan(0.5f * depth_->getHorizontalFieldOfView()));
-  depth_focal_.y = (float) frame_.height / (2.0f * tan(0.5f * depth_->getVerticalFieldOfView()));
-
-  //Allocate GPU memory for frames
-  cudaMalloc((void**) &frame_.color, frame_.width*frame_.height*sizeof(Color256));
-  cudaMalloc((void**) &frame_.vertex, frame_.width*frame_.height*sizeof(glm::vec3));
-  cudaMalloc((void**) &frame_.normal, frame_.width*frame_.height*sizeof(glm::vec3));
+  depth_focal_.x = (float) raw_frame_->width / (2.0f * tan(0.5f * depth_->getHorizontalFieldOfView()));
+  depth_focal_.y = (float) raw_frame_->height / (2.0f * tan(0.5f * depth_->getVerticalFieldOfView()));
 }
 
 OpenNIDevice::~OpenNIDevice() {
@@ -80,15 +74,10 @@ OpenNIDevice::~OpenNIDevice() {
   //Shutdown OpenNI
   openni::OpenNI::shutdown();
   
-  //Clean up CUDA memory
-  cudaFree(frame_.color);
-  cudaFree(frame_.vertex);
-  cudaFree(frame_.normal);
+  delete raw_frame_;
 }
 
 long long OpenNIDevice::readFrame() {
-  //Temporarily allocate GPU memory for the raw depth frame
-  cudaMalloc((void**)&d_pixel_depth_, frame_.width*frame_.height*sizeof(openni::DepthPixel));
 
   //Read a depth frame from the device
   openni::VideoFrameRef frame;
@@ -101,7 +90,7 @@ long long OpenNIDevice::readFrame() {
   }
 
   //Verify size of frame
-  if (frame_.width != frame.getWidth() || frame_.height != frame.getHeight()) {
+  if (raw_frame_->width != frame.getWidth() || raw_frame_->height != frame.getHeight()) {
     printf("[OpenNIDevice] ERROR: Received a frame of unexpected size.");
   }
 
@@ -111,11 +100,7 @@ long long OpenNIDevice::readFrame() {
 
   //Get data from frame and copy to GPU
   openni::DepthPixel* pixel_depth = (openni::DepthPixel*) frame.getData();
-  cudaMemcpy(d_pixel_depth_, pixel_depth, frame_.width*frame_.height*sizeof(openni::DepthPixel), cudaMemcpyHostToDevice);
-
-  //Generate vertex and normal maps from the data
-  generateVertexMap(d_pixel_depth_, frame_.vertex, frame_.width, frame_.height, depth_focal_);
-  generateNormalMap(frame_.vertex, frame_.normal, frame_.width, frame_.height);
+  cudaMemcpy(raw_frame_->depth, pixel_depth, raw_frame_->width*raw_frame_->height*sizeof(openni::DepthPixel), cudaMemcpyHostToDevice);
 
   //Read a color frame from the device
   checkONIError(color_->readFrame(&frame));
@@ -126,7 +111,7 @@ long long OpenNIDevice::readFrame() {
   }
 
   //Verify size of frame
-  if (frame_.width != frame.getWidth() || frame_.height != frame.getHeight()) {
+  if (raw_frame_->width != frame.getWidth() || raw_frame_->height != frame.getHeight()) {
     printf("[OpenNIDevice] ERROR: Received a frame of unexpected size.");
   }
 
@@ -134,10 +119,7 @@ long long OpenNIDevice::readFrame() {
 
   //Get data from frame and copy to GPU
   openni::RGB888Pixel* pixel_color = (openni::RGB888Pixel*) frame.getData();
-  cudaMemcpy(frame_.color, pixel_color, frame_.width*frame_.height*sizeof(openni::RGB888Pixel), cudaMemcpyHostToDevice);
-
-  //Free up GPU memory now that the depth frame is not needed 
-  cudaFree(d_pixel_depth_);
+  cudaMemcpy(raw_frame_->color, pixel_color, raw_frame_->width*raw_frame_->height*sizeof(openni::RGB888Pixel), cudaMemcpyHostToDevice);
 
   return timestamp;
 }

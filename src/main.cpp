@@ -30,7 +30,7 @@ void mainLoop() {
     //Read a frame from OpenNI Device
     if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
       camera_device_->readFrame();
-      camera_estimation_->update(camera_device_->frame());
+      camera_estimation_->update(camera_device_->rawFrame());
     }
 
     camera_->update();
@@ -39,9 +39,10 @@ void mainLoop() {
       cuda_renderer_->rasterize(scene_->meshes()[0], scene_->textures()[0], camera_->camera(), lightpos_);
 		} else if (DRAW_CAMERA_COLOR) {
       //Draw the current camera color frame to the window
-      cuda_renderer_->pixelPassthrough(camera_device_->frame().color);
+      cuda_renderer_->pixelPassthrough(camera_device_->rawFrame()->color);
     } else if (DRAW_POINT_CLOUD) {
-      gl_renderer_->renderPoints(camera_device_->frame(), camera_->camera());
+      octree_slam::sensor::generateVertexMap(camera_device_->rawFrame()->depth, points_, camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength());
+      gl_renderer_->renderPoints(points_, camera_device_->rawFrame()->color, camera_device_->frameWidth()*camera_device_->frameHeight(), camera_->camera());
     } else {
       gl_renderer_->rasterize(scene_->meshes()[0], camera_->camera(), lightpos_);
     }
@@ -120,6 +121,7 @@ bool init(int argc, char* argv[]) {
   if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
     camera_device_ = new octree_slam::sensor::OpenNIDevice();
     camera_estimation_ = new octree_slam::sensor::RGBDCamera(camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength());
+    cudaMalloc((void**)&points_, camera_device_->frameWidth()*camera_device_->frameHeight()*sizeof(glm::vec3));
   }
 
 	// Initialize renderers
@@ -135,6 +137,9 @@ bool init(int argc, char* argv[]) {
 }
 
 void shut_down(int return_code){
+  if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
+    cudaFree(points_);
+  }
 	cudaDeviceReset();
 #ifdef __APPLE__
 	glfwTerminate();

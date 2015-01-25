@@ -11,6 +11,10 @@ namespace octree_slam {
 
 namespace sensor {
 
+// Forward Declaration
+class ICPFrame;
+class RGBDFrame;
+
 class RGBDCamera {
 
 public:
@@ -32,7 +36,7 @@ public:
   const glm::mat3 orientation() const { return orientation_; };
 
   //Updates the camera pose by predicting with a new frame
-  void update(const Frame& this_frame);
+  void update(const RawFrame* this_frame);
 
 private:
 
@@ -50,8 +54,18 @@ private:
   int width_, height_;
 
   //Store the previously seen frame
-  Frame last_frame_;
+  ICPFrame* last_icp_frame_;
+  RGBDFrame* last_rgbd_frame_;
   bool has_frame_;
+
+  //The number of depth map pyramids to use
+  static const int PYRAMID_DEPTH = 3;
+
+  //The number of iterations for each level in the depth map pyramid;
+  static const int PYRAMID_ITERS[PYRAMID_DEPTH];
+
+  //The relative weight of the RGBD cost contribution
+  static const float W_RGBD;
 
 }; //class RGBDCamera
 

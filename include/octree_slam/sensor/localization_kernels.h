@@ -14,11 +14,30 @@ namespace octree_slam {
 
 namespace sensor {
 
+struct ICPFrame {
+  ICPFrame(const int w, const int h);
+  ~ICPFrame();
+  Color256* color;
+  glm::vec3* vertex;
+  glm::vec3* normal;
+  int width;
+  int height;
+};
+
+struct RGBDFrame {
+  RGBDFrame(const int w, const int h);
+  ~RGBDFrame();
+  float* intensity;
+  glm::vec3* vertex;
+  int width;
+  int height;
+};
+
 //Computes ICP cost terms from GPU vertex/normal/color maps and fills in matrices in CPU memory
-extern "C" void computeICPCost(const Frame& last_frame, const Frame& this_frame, float* A, float* b);
+extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame& this_frame, float* A, float* b);
 
 //Computes RGBD cost terms from GPU vertex/normal/color maps and fills in matrices in CPU memory
-extern "C" void computeRGBDCost(const Frame& last_frame, const Frame& this_frame, float* A, float* b);
+extern "C" void computeRGBDCost(const RGBDFrame* last_frame, const RGBDFrame& this_frame, float* A, float* b);
 
 } // namespace sensor
 

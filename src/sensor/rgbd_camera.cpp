@@ -4,6 +4,7 @@
 // Octree-SLAM Dependencies
 #include <octree_slam/sensor/rgbd_camera.h>
 #include <octree_slam/sensor/localization_kernels.h>
+#include <octree_slam/sensor/image_kernels.h>
 
 // OpenGL Dependency
 #include <glm/gtc/matrix_transform.hpp>
@@ -15,12 +16,18 @@ namespace octree_slam {
 
 namespace sensor {
 
+const int RGBDCamera::PYRAMID_ITERS[] = {4, 5, 10};
+const float RGBDCamera::W_RGBD = 0.1;
+
 RGBDCamera::RGBDCamera(const int width, const int height, const glm::vec2 &focal_length) : 
   width_(width), height_(height), focal_length_(focal_length), has_frame_(false) {
 }
 
 RGBDCamera::~RGBDCamera() {
-
+  if (has_frame_) {
+    delete last_icp_frame_;
+    delete last_rgbd_frame_;
+  }
 }
 
 const Camera RGBDCamera::camera() const {
@@ -35,19 +42,38 @@ const Camera RGBDCamera::camera() const {
   return cam;
 }
 
-void RGBDCamera::update(const Frame& this_frame) {
-  if (has_frame_) {
-    //TODO: Create pyramids and loop over them
+void RGBDCamera::update(const RawFrame* this_frame) {
+  //Apply bilateral filter to incoming depth
+  uint16_t* filtered_depth;
+  cudaMalloc((void**)&filtered_depth, this_frame->width*this_frame->height);
+  bilateralFilter(this_frame->depth, filtered_depth, this_frame->width, this_frame->height);
 
-    //Get the ICP cost values
-    float A[6*6];
-    float b[6];
-    computeICPCost(last_frame_, this_frame, A, b);
-    //TODO: Use RBGD cost also, and create weighted sum as in Kintinuous
+  //Generate the vertex and normal maps for ICP
+  ICPFrame icp_f(this_frame->width, this_frame->height);
+  generateVertexMap(filtered_depth, icp_f.vertex, this_frame->width, this_frame->height, focal_length_);
+  generateNormalMap(icp_f.vertex, icp_f.normal, this_frame->width, this_frame->height);
+  cudaMemcpy(icp_f.color, this_frame->color, this_frame->width*this_frame->height*sizeof(Color256), cudaMemcpyDeviceToDevice);
+  //TODO: Create pyramids
+
+  //Clear the filtered depth since it is no longer needed
+  cudaFree(filtered_depth);
+
+  if (has_frame_) {
+    //TODO: Loop over pyramids
+
+    //Get the Geometric ICP cost values
+    float A1[6*6];
+    float b1[6];
+    computeICPCost(last_icp_frame_, icp_f, A1, b1);
+
+    //Get the Photometric RGB-D cost values
+    //float A2[6*6];
+    //float b2[6];
+    //compueRGBDCost(last_rgbd_frame_, rgbd_f, A2, b2);
 
     //Solve for the optimized camera transformation
     float x[6];
-    solveCholesky(6, A, b, x);
+    solveCholesky(6, A1, b1, x);
 
     //Update position/orientation of the camera
     glm::mat4 update_trans = glm::mat4(glm::mat3(1.0f, x[2], -x[1], -x[2], 1.0f, x[0], x[1], -x[0], 1.0f)) 
@@ -59,18 +85,15 @@ void RGBDCamera::update(const Frame& this_frame) {
 
     //Copy the frame for the next update
   } else {
-    //TODO: Replace this with a copy constructor
-    last_frame_.width = this_frame.width;
-    last_frame_.height = this_frame.height;
-    cudaMalloc((void**)&last_frame_.vertex, last_frame_.width*last_frame_.height*sizeof(glm::vec3));
-    cudaMalloc((void**)&last_frame_.normal, last_frame_.width*last_frame_.height*sizeof(glm::vec3));
-    cudaMalloc((void**)&last_frame_.color, last_frame_.width*last_frame_.height*sizeof(Color256));
+    last_icp_frame_ = new ICPFrame(this_frame->width, this_frame->height);
+    last_rgbd_frame_ = new RGBDFrame(this_frame->width, this_frame->height);
     has_frame_ = true;
   }
 
-  cudaMemcpy(last_frame_.vertex, this_frame.vertex, this_frame.width*this_frame.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
-  cudaMemcpy(last_frame_.normal, this_frame.normal, this_frame.width*this_frame.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
-  cudaMemcpy(last_frame_.color, this_frame.color, this_frame.width*this_frame.height*sizeof(Color256), cudaMemcpyDeviceToDevice);
+  //Store ICP data for the next frame
+  cudaMemcpy(last_icp_frame_->vertex, icp_f.vertex, this_frame->width*this_frame->height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+  cudaMemcpy(last_icp_frame_->normal, icp_f.normal, this_frame->width*this_frame->height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+  cudaMemcpy(last_icp_frame_->color, icp_f.color, this_frame->width*this_frame->height*sizeof(float), cudaMemcpyDeviceToDevice);
 }
 
 //This is based on: http://www.sci.utah.edu/~wallstedt/LU.htm

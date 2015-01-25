@@ -107,7 +107,7 @@ void OpenGLRenderer::rasterize(const Mesh& geometry, const Camera& camera, const
 
 }
 
-void OpenGLRenderer::renderPoints(const Frame& frame, const Camera& camera) {
+void OpenGLRenderer::renderPoints(const glm::vec3* positions, const Color256* colors, const int num, const Camera &camera) {
   //always use the point shaders to render points
   glUseProgram(points_program_);
   mvp_location_ = glGetUniformLocation(points_program_, "u_mvpMatrix");
@@ -118,13 +118,13 @@ void OpenGLRenderer::renderPoints(const Frame& frame, const Camera& camera) {
 
   //Setup position buffer
   glBindBuffer(GL_ARRAY_BUFFER, buffers_[0]);
-  glBufferData(GL_ARRAY_BUFFER, 3 * frame.width*frame.height*sizeof(float), NULL, GL_DYNAMIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, 3 * num*sizeof(float), NULL, GL_DYNAMIC_DRAW);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, NULL);
   glEnableVertexAttribArray(0);
 
   //Setup color buffer
   glBindBuffer(GL_ARRAY_BUFFER, buffers_[1]);
-  glBufferData(GL_ARRAY_BUFFER, 3 * frame.width*frame.height*sizeof(float), NULL, GL_DYNAMIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, 3 * num*sizeof(float), NULL, GL_DYNAMIC_DRAW);
   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
   glEnableVertexAttribArray(1);
 
@@ -137,7 +137,7 @@ void OpenGLRenderer::renderPoints(const Frame& frame, const Camera& camera) {
   cudaGLMapBufferObject((void**)&dptr_col, buffers_[1]);
 
   //Copy data to buffer with CUDA
-  copyPointsToGL(frame.vertex, frame.color, dptr_pos, dptr_col, frame.width*frame.height);
+  copyPointsToGL(positions, colors, dptr_pos, dptr_col, num);
 
   //Unmap buffers from CUDA
   cudaGLUnmapBufferObject(buffers_[0]);
@@ -153,7 +153,7 @@ void OpenGLRenderer::renderPoints(const Frame& frame, const Camera& camera) {
   //Draw
   glPointSize(1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-  glDrawArrays(GL_POINTS, 0, 3 * frame.width * frame.height);
+  glDrawArrays(GL_POINTS, 0, 3 * num);
 }
 
 } // namespace rendering

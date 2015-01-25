@@ -30,6 +30,7 @@ void mainLoop() {
     //Read a frame from OpenNI Device
     if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
       camera_device_->readFrame();
+      camera_estimation_->update(camera_device_->frame());
     }
 
     camera_->update();
@@ -118,6 +119,7 @@ bool init(int argc, char* argv[]) {
   //Initialize camera rendering
   if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
     camera_device_ = new octree_slam::sensor::OpenNIDevice();
+    camera_estimation_ = new octree_slam::sensor::RGBDCamera(camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength());
   }
 
 	// Initialize renderers

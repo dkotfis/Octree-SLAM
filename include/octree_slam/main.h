@@ -21,6 +21,7 @@
 #include <octree_slam/rendering/opengl_renderer.h>
 #include <octree_slam/rendering/cuda_renderer.h>
 #include <octree_slam/sensor/openni_device.h>
+#include <octree_slam/sensor/rgbd_camera.h>
 #include <octree_slam/world/scene.h>
 
 #define DRAW_CAMERA_COLOR 0
@@ -41,6 +42,9 @@ glm::vec3 lightpos_ = glm::vec3(0, 2.0f, 2.0f);
 
 //Physical camera device interface
 octree_slam::sensor::OpenNIDevice* camera_device_;
+
+//Camera localization
+octree_slam::sensor::RGBDCamera* camera_estimation_;
 
 //Virtual camera controller
 octree_slam::rendering::GLFWCameraController* camera_;

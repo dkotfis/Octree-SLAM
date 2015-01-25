@@ -1,0 +1,222 @@
+
+// CUDA Dependencies
+#include <cuda.h>
+
+// Thrust Dependencies
+#include <thrust/device_ptr.h>
+#include <thrust/copy.h>
+#include <thrust/reduce.h>
+
+// Octree-SLAM Dependencies
+#include <octree_slam/sensor/localization_kernels.h>
+
+namespace octree_slam {
+
+namespace sensor {
+
+__device__ const float DIST_THRESH = 0.01f; //Use 1cm distance threshold for correspondences
+__device__ const float NORM_THRESH = 0.95f; //Use 0.05 radians orientation threshold for correspondences
+__device__ const int COLOR_THRESH = 50;
+
+//Define structures to be used for Mat6x6 and Vec6 for thrust summation
+struct Mat6x6 {
+  float values[36];
+  __host__ __device__ Mat6x6() {};
+  __host__ __device__ Mat6x6(const int val) {
+    for (int i = 0; i < 36; i++) {
+      values[i] = val;
+    }
+  };
+};
+
+__host__ __device__ inline Mat6x6 operator+(const Mat6x6& lhs, const Mat6x6& rhs) {
+  Mat6x6 result;
+  for (int i = 0; i < 36; i++) {
+    result.values[i] = lhs.values[i] + rhs.values[i];
+  }
+  return result;
+}
+
+struct Vec6 {
+  float values[6];
+  __host__ __device__ Vec6() {};
+  __host__ __device__ Vec6(const int val) {
+    for (int i = 0; i < 6; i++) {
+      values[i] = val;
+    }
+  };
+};
+
+__host__ __device__ inline Vec6 operator+(const Vec6& lhs, const Vec6& rhs) {
+  Vec6 result;
+  for (int i = 0; i < 6; i++) {
+    result.values[i] = lhs.values[i] + rhs.values[i];
+  }
+  return result;
+}
+
+__global__ void computeICPCorrespondences(const Color256* last_frame_color, const glm::vec3* last_frame_vertex, const glm::vec3* last_frame_normal, 
+    const Color256* this_frame_color, const glm::vec3* this_frame_vertex, const glm::vec3* this_frame_normal, 
+    const int num_points, bool* stencil, int* num_corr) {
+
+  int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  //Don't do anything if the index is out of bounds
+  if (idx >= num_points) {
+    return;
+  }
+
+  bool is_match = true;
+
+  //Check whether points are any good
+  if (!isfinite(this_frame_vertex[idx].x) || !isfinite(this_frame_vertex[idx].y) || !isfinite(this_frame_vertex[idx].z)
+    || !isfinite(last_frame_vertex[idx].x) || !isfinite(last_frame_vertex[idx].y) || !isfinite(last_frame_vertex[idx].z)) {
+    is_match = false;
+  }
+  if (!is_match || !isfinite(this_frame_normal[idx].x) || !isfinite(this_frame_normal[idx].y) || !isfinite(this_frame_normal[idx].z)
+    || !isfinite(last_frame_normal[idx].x) || !isfinite(last_frame_normal[idx].y) || !isfinite(last_frame_normal[idx].z)) {
+    is_match = false;
+  }
+
+  //Check position difference
+  if (!is_match || glm::length(this_frame_vertex[idx] - last_frame_vertex[idx]) > DIST_THRESH) {
+    is_match = false;
+  }
+
+  //Check normal difference
+  if (!is_match || glm::dot(this_frame_normal[idx], last_frame_normal[idx]) < NORM_THRESH) {
+    is_match = false;
+  }
+
+  //Check color difference
+  if (!is_match || abs(this_frame_color[idx].r - last_frame_color[idx].r) + abs(this_frame_color[idx].g - last_frame_color[idx].g) 
+    + abs(this_frame_color[idx].b - last_frame_color[idx].b) > COLOR_THRESH) {
+    is_match = false;
+  }
+
+  //Update result
+  stencil[idx] = is_match;
+
+  //Subtract from global counter if its not a match
+  if (!is_match) {
+    atomicAdd(num_corr, -1);
+  }
+
+}
+
+__global__ void computeICPCostsKernel(const glm::vec3* last_frame_normal, const glm::vec3* last_frame_vertex, const glm::vec3* this_frame_vertex, const int num_points, Mat6x6* As, Vec6* bs) {
+  int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  //Don't do anything if the index is out of bounds
+  if (idx >= num_points) {
+    return;
+  }
+
+  //Get the vertex and normal values
+  glm::vec3 v2 = this_frame_vertex[idx];
+  glm::vec3 v1 = last_frame_vertex[idx];
+  glm::vec3 n = last_frame_normal[idx];
+
+  //Construct A_T
+  float G_T[18] = { 0.0f, -v2.z, v2.y, v2.z, 0.0f, -v2.x, -v2.y, v2.x, 0.0f,
+    1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+  float A_T[6];
+  for (int i = 0; i < 6; i++) {
+    A_T[i] = G_T[3 * i] * n.x + G_T[3*i + 1] * n.y + G_T[3*i + 2] * n.z;
+  }
+
+  //Construct b
+  float b = glm::dot(n, v1 - v2);
+
+  //Compute outputs
+  for (int i = 0; i < 6; i++) {
+    for (int j = 0; j < 6; j++) {
+      As[idx].values[6*i + j] = A_T[i] * A_T[j];
+    }
+    bs[idx].values[i] = b*A_T[i];
+  }
+}
+
+extern "C" void computeICPCost(const Frame &last_frame, const Frame &this_frame, float* A, float* b) {
+  //TODO: Verify that the two frames are the same size
+
+  //Compute correspondences 
+  int num_correspondences = this_frame.width * this_frame.height;
+  bool* d_stencil;
+  int* d_num_corr;
+  cudaMalloc((void**)&d_stencil, num_correspondences * sizeof(bool));
+  cudaMalloc((void**)&d_num_corr, sizeof(int));
+  cudaMemcpy(d_num_corr, &num_correspondences, sizeof(int), cudaMemcpyHostToDevice); //Initialize to the total points. Assume that most points will be valid
+  computeICPCorrespondences<<<num_correspondences / 256 + 1, 256>>>(last_frame.color, last_frame.vertex, last_frame.normal, this_frame.color, this_frame.vertex, this_frame.normal, 
+    num_correspondences, d_stencil, d_num_corr);
+  cudaDeviceSynchronize();
+
+  //Copy number of correspondences back from the device
+  cudaMemcpy(&num_correspondences, d_num_corr, sizeof(int), cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
+  cudaFree(d_num_corr);
+
+  //Don't continue without any correspondences
+  if (num_correspondences <= 0) {
+    return;
+  }
+
+  //Allocate memory for reduced copies
+  Frame last_frame_reduced;
+  cudaMalloc((void**)&(last_frame_reduced.vertex), num_correspondences * sizeof(glm::vec3));
+  cudaMalloc((void**)&(last_frame_reduced.normal), num_correspondences * sizeof(glm::vec3));
+  Frame this_frame_reduced;
+  cudaMalloc((void**)&(this_frame_reduced.vertex), num_correspondences * sizeof(glm::vec3));
+
+  //Reduce inputs with thrust compaction
+  thrust::device_ptr<glm::vec3> in, out;
+  thrust::device_ptr<bool> sten = thrust::device_pointer_cast<bool>(d_stencil);
+  in = thrust::device_pointer_cast<glm::vec3>(last_frame.vertex);
+  out = thrust::device_pointer_cast<glm::vec3>(last_frame_reduced.vertex);
+  thrust::copy_if(in, in + last_frame.width*last_frame.height, sten, out, thrust::identity<bool>());
+  in = thrust::device_pointer_cast<glm::vec3>(last_frame.normal);
+  out = thrust::device_pointer_cast<glm::vec3>(last_frame_reduced.normal);
+  thrust::copy_if(in, in + last_frame.width*last_frame.height, sten, out, thrust::identity<bool>());
+  in = thrust::device_pointer_cast<glm::vec3>(this_frame.vertex);
+  out = thrust::device_pointer_cast<glm::vec3>(this_frame_reduced.vertex);
+  thrust::copy_if(in, in + last_frame.width*last_frame.height, sten, out, thrust::identity<bool>());
+  
+  //Free device memory from data in the compaction stages
+  cudaFree(d_stencil);
+
+  //Compute cost terms
+  Mat6x6* d_A;
+  Vec6* d_b;
+  cudaMalloc((void**) &d_A, num_correspondences * sizeof(Mat6x6));
+  cudaMalloc((void**) &d_b, num_correspondences * sizeof(Vec6));
+  computeICPCostsKernel<<<num_correspondences / 256 + 1, 256>>>(last_frame_reduced.normal, last_frame_reduced.vertex, this_frame_reduced.vertex, num_correspondences, d_A, d_b);
+  cudaDeviceSynchronize();
+
+  //Free up device memory
+  cudaFree(last_frame_reduced.vertex);
+  cudaFree(last_frame_reduced.normal);
+  cudaFree(this_frame_reduced.vertex);
+
+  //Sum terms (reduce) with thrust
+  thrust::device_ptr<Mat6x6> thrust_A = thrust::device_pointer_cast<Mat6x6>(d_A);
+  Mat6x6 matA = thrust::reduce(thrust_A, thrust_A + num_correspondences);
+  thrust::device_ptr<Vec6> thrust_b = thrust::device_pointer_cast<Vec6>(d_b);
+  Vec6 vecb = thrust::reduce(thrust_b, thrust_b + num_correspondences);
+
+  //Free up device memory
+  cudaFree(d_A);
+  cudaFree(d_b);
+
+  //Copy result to output
+  memcpy(A, matA.values, 36 * sizeof(float));
+  memcpy(b, vecb.values, 6 * sizeof(float));
+}
+
+extern "C" void computeRGBDCost(const Frame& last_frame, const Frame& this_frame, float* A, float* b) {
+  //TODO: Stuff here
+  cudaDeviceSynchronize();
+}
+
+} // namespace sensor
+
+} // namespace octree_slam

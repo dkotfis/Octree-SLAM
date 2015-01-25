@@ -30,7 +30,7 @@ __global__ void generateVertexMapKernel(const openni::DepthPixel* depth_pixels, 
 
   //Compute the point coordinates
   vertex_map[idx].x = (x - width/2) * (float) depth / focal_length.x * milli;
-  vertex_map[idx].y = (y - height/2) * (float) depth / focal_length.y * milli;
+  vertex_map[idx].y = (height/2 - y) * (float) depth / focal_length.y * milli;
   vertex_map[idx].z = depth*milli;
 
 }

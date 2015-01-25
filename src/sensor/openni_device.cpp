@@ -52,11 +52,11 @@ OpenNIDevice::OpenNIDevice() {
   */
 
   //Compute focal lengths
-  depth_focal_.x = 2.0f * atan(0.5f * (float) frame_.width / depth_->getHorizontalFieldOfView());
-  depth_focal_.y = 2.0f * atan(0.5f * (float) frame_.height / depth_->getVerticalFieldOfView());
+  depth_focal_.x = (float) frame_.width / (2.0f * tan(0.5f * depth_->getHorizontalFieldOfView()));
+  depth_focal_.y = (float) frame_.height / (2.0f * tan(0.5f * depth_->getVerticalFieldOfView()));
 
   //Allocate GPU memory for frames
-  cudaMalloc((void**) &frame_.color, frame_.width*frame_.height*sizeof(uchar3));
+  cudaMalloc((void**) &frame_.color, frame_.width*frame_.height*sizeof(Color256));
   cudaMalloc((void**) &frame_.vertex, frame_.width*frame_.height*sizeof(glm::vec3));
   cudaMalloc((void**) &frame_.normal, frame_.width*frame_.height*sizeof(glm::vec3));
 }
@@ -81,9 +81,9 @@ OpenNIDevice::~OpenNIDevice() {
   openni::OpenNI::shutdown();
   
   //Clean up CUDA memory
-  cudaFree(&frame_.color);
-  cudaFree(&frame_.vertex);
-  cudaFree(&frame_.normal);
+  cudaFree(frame_.color);
+  cudaFree(frame_.vertex);
+  cudaFree(frame_.normal);
 }
 
 long long OpenNIDevice::readFrame() {
@@ -137,7 +137,7 @@ long long OpenNIDevice::readFrame() {
   cudaMemcpy(frame_.color, pixel_color, frame_.width*frame_.height*sizeof(openni::RGB888Pixel), cudaMemcpyHostToDevice);
 
   //Free up GPU memory now that the depth frame is not needed 
-  cudaFree(&d_pixel_depth_);
+  cudaFree(d_pixel_depth_);
 
   return timestamp;
 }

@@ -46,6 +46,9 @@ public:
   //Accessor method to the frame height
   const int frameHeight() const { return frame_.height; };
 
+  //Accessor method to the focal length
+  const glm::vec2& focalLength() const { return depth_focal_; };
+
 private:
 
   //Error checking function to print out ONI calls that are not successful

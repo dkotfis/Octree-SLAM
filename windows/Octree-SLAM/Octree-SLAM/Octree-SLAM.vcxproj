@@ -89,6 +89,7 @@
     <ClCompile Include="..\..\..\src\rendering\glfw_camera_controller.cpp" />
     <ClCompile Include="..\..\..\src\rendering\opengl_renderer.cpp" />
     <ClCompile Include="..\..\..\src\sensor\openni_device.cpp" />
+    <ClCompile Include="..\..\..\src\sensor\rgbd_camera.cpp" />
     <ClCompile Include="..\..\..\src\utilities.cpp" />
     <ClCompile Include="..\..\..\src\world\octree.cpp" />
     <ClCompile Include="..\..\..\src\world\scene.cpp" />
@@ -97,6 +98,7 @@
     <CudaCompile Include="..\..\..\external\src\voxelpipe\compact_ranges.cu" />
     <CudaCompile Include="..\..\..\src\rendering\gl_interop_kernels.cu" />
     <CudaCompile Include="..\..\..\src\rendering\rasterize_kernels.cu" />
+    <CudaCompile Include="..\..\..\src\sensor\localization_kernels.cu" />
     <CudaCompile Include="..\..\..\src\sensor\openni_kernels.cu" />
     <CudaCompile Include="..\..\..\src\timing_utils.cu" />
     <CudaCompile Include="..\..\..\src\world\svo\svo.cu" />

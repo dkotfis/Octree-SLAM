@@ -53,16 +53,22 @@ private:
   glm::vec2 focal_length_;
   int width_, height_;
 
-  //Store the previously seen frame
-  ICPFrame* last_icp_frame_;
-  RGBDFrame* last_rgbd_frame_;
-  bool has_frame_;
-
   //The number of depth map pyramids to use
   static const int PYRAMID_DEPTH = 3;
 
   //The number of iterations for each level in the depth map pyramid;
   static const int PYRAMID_ITERS[PYRAMID_DEPTH];
+
+  //Store the previously seen pyramids
+  ICPFrame* last_icp_frame_[PYRAMID_DEPTH];
+  RGBDFrame* last_rgbd_frame_[PYRAMID_DEPTH];
+
+  //Store the current pyramid
+  ICPFrame* current_icp_frame_[PYRAMID_DEPTH];
+  RGBDFrame* current_rgbd_frame_[PYRAMID_DEPTH];
+
+  //The number of updates that have been run (caps at 2)
+  int pass_;
 
   //The relative weight of the RGBD cost contribution
   static const float W_RGBD;

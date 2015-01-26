@@ -111,10 +111,10 @@ __global__ void computeICPCorrespondences(const Color256* last_frame_color, cons
   }
 
   //Check color difference
-  if (!is_match || abs(this_frame_color[idx].r - last_frame_color[idx].r) + abs(this_frame_color[idx].g - last_frame_color[idx].g) 
+  /*if (!is_match || abs(this_frame_color[idx].r - last_frame_color[idx].r) + abs(this_frame_color[idx].g - last_frame_color[idx].g) 
     + abs(this_frame_color[idx].b - last_frame_color[idx].b) > COLOR_THRESH) {
     is_match = false;
-  }
+  }*/
 
   //Update result
   stencil[idx] = is_match;

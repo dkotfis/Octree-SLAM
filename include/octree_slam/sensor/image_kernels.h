@@ -26,14 +26,13 @@ extern "C" void generateNormalMap(const glm::vec3* vertex_map, glm::vec3* normal
 //Applies a bilateral filter to a depth image
 extern "C" void bilateralFilter(const uint16_t* depth_in, uint16_t* filtered_out, const int width, const int height);
 
-//Applies a gaussian filter to an intensity image
-extern "C" void gaussianFilter(const float* in, float* out, const int width, const int height);
+//Applies a gaussian filter (in place)
+template <class T>
+void gaussianFilter(T* data, const int width, const int height);
 
-//Subsamples a depth map to construct a pyramid
-extern "C" void subsampleDepth(const uint16_t* depth_in, uint16_t* sub_out, const int width, const int height);
-
-//Subsamples an intensity image to construct a pyramid
-extern "C" void subsampleIntensity(const float* intensity_in, float* sub_out, const int width, const int height);
+//Subsamples (in place) to construct a pyramid
+template <class T>
+void subsample(T* data, const int width, const int height);
 
 //Computes an intensity image from a color input
 extern "C" void colorToIntensity(const Color256* color_in, float* intensity_out, const int size);
@@ -44,11 +43,11 @@ extern "C" void gradient(const float* intensity_in, glm::vec2* gradient, const i
 //Computes a difference between two intensity images
 extern "C" void difference(const float* in1, const float* in2, float* out, const int size);
 
-//Transforms a vertex map with an input transformation matrix
-extern "C" void transformVertexMap(const glm::vec3* vertex_map, const glm::mat4 &trans, glm::vec3* vertex_out, const int size);
+//Transforms a vertex map (in place) with an input transformation matrix
+extern "C" void transformVertexMap(glm::vec3* vertex_map, const glm::mat4 &trans, const int size);
 
-//Transforms a normal map with an input transformation matrix
-extern "C" void transformNormalMap(const glm::vec3* normal_map, const glm::mat4 &trans, glm::vec3* normal_out, const int size);
+//Transforms a normal map (in place) with an input transformation matrix
+extern "C" void transformNormalMap(glm::vec3* normal_map, const glm::mat4 &trans, const int size);
 
 } // namespace sensor
 

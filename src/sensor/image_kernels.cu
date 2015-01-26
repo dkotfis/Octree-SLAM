@@ -11,6 +11,8 @@ namespace sensor {
 
 __device__ float PI = 3.14159;
 
+int GAUSS_RADIUS = 2;
+float GAUSS_SIGMA = 0.8;
 int BILATERAL_RADIUS = 2;
 float BILATERAL_SIGMA = 0.8;
 float3 INTENSITY_RATIO = { 0.299f, 0.587f, 0.114f }; //These are taken from Kintinuous
@@ -241,6 +243,133 @@ extern "C" void colorToIntensity(const Color256* color_in, float* intensity_out,
   colorToIntensityKernel<<<size/256 + 1, 256>>>(color_in, intensity_out, size, INTENSITY_RATIO);
   cudaDeviceSynchronize();
 }
+
+
+__global__ void transformVertexMapKernel(glm::vec3* vertex, const glm::mat4 trans, const int size) {
+  int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  //Don't do anything if the index is out of bounds
+  if (idx >= size) {
+    return;
+  }
+  vertex[idx] = glm::vec3(trans*glm::vec4(vertex[idx], 1.0f));
+}
+
+extern "C" void transformVertexMap(glm::vec3* vertex_map, const glm::mat4 &trans, const int size) {
+  transformVertexMapKernel<<<size / 256 + 1, 256>>>(vertex_map, trans, size);
+  cudaDeviceSynchronize();
+}
+
+__global__ void transformNormalMapKernel(glm::vec3* normal, const glm::mat4 trans, const int size) {
+  int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  //Don't do anything if the index is out of bounds
+  if (idx >= size) {
+    return;
+  }
+  normal[idx] = glm::vec3(trans*glm::vec4(normal[idx], 0.0f));
+}
+
+extern "C" void transformNormalMap(glm::vec3* normal_map, const glm::mat4 &trans, const int size) {
+  transformNormalMapKernel<<<size / 256 + 1, 256>>>(normal_map, trans, size);
+  cudaDeviceSynchronize();
+}
+
+template <class T>
+__global__ void gaussianFilterKernel(const T* input, T* output, uint2 dims, int radius, float* kernel) {
+  const unsigned int idx = blockIdx.x*blockDim.x + threadIdx.x;
+  uint2 pos = idx_to_co(idx, dims);
+  int img_x = pos.x;
+  int img_y = pos.y;
+  if (img_x >= dims.x || img_y >= dims.y) return;
+  T res = 0;
+  T normalization = 0;
+  for (int i = -radius; i <= radius; i++) {
+    for (int j = -radius; j <= radius; j++) {
+      int x_sample = img_x + i;
+      int y_sample = img_y + j;
+      //mirror edges
+      if (x_sample < 0) x_sample = -x_sample;
+      if (y_sample < 0) y_sample = -y_sample;
+      if (x_sample > dims.x - 1) x_sample = dims.x - 1 - i;
+      if (y_sample > dims.y - 1) y_sample = dims.y - 1 - j;
+      uint16_t tmpColor =
+        input[co_to_idx(make_uint2(x_sample, y_sample), dims)];
+      float gauss_spatial =
+        kernel[co_to_idx(make_uint2(i + radius, j + radius), make_uint2(radius *
+        2 + 1, radius * 2 + 1))];
+      normalization = normalization + gauss_spatial;
+      res = res + (tmpColor * gauss_spatial);
+    }
+  }
+  res /= normalization;
+  output[idx] = res;
+}
+
+template <class T>
+void gaussianFilter(T* data, const int width, const int height) {
+  //Create the gaussian kernel and transfer to GPU memory
+  float* kernel = generateGaussianKernel(GAUSS_RADIUS, GAUSS_SIGMA);
+  float* d_kernel;
+  cudaMalloc((void**)&d_kernel, GAUSS_RADIUS*GAUSS_RADIUS*sizeof(float));
+  cudaMemcpy(d_kernel, kernel, GAUSS_RADIUS*GAUSS_RADIUS*sizeof(float), cudaMemcpyHostToDevice);
+  delete kernel;
+
+  //Create new memory space (this can't actually be done in place)
+  T* data_new;
+  cudaMalloc((void**)&data_new, width*height*sizeof(T));
+
+  //Use the bilateral filter kernel on the inputs
+  uint2 dims = make_uint2(width, height);
+  gaussianFilterKernel<<<width*height / 256 + 1, 256>>>(data, data_new, dims, GAUSS_RADIUS, d_kernel);
+  cudaDeviceSynchronize();
+
+  //Copy into the input
+  cudaMemcpy(data, data_new, width*height*sizeof(T), cudaMemcpyDeviceToDevice);
+
+  //Free the temporary memory slot
+  cudaFree(data_new);
+}
+
+//template void gaussianFilter<Color256>(Color256* data, const int width, const int height);
+template void gaussianFilter<uint16_t>(uint16_t* data, const int width, const int height);
+
+template <class T>
+__global__ void subsampleKernel(const T* data_in, T* data_out, const int width, const int height) {
+  int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  //Don't do anything if the index is out of bounds
+  if (idx >= width*height) {
+    return;
+  }
+
+  //Compute the x/y coords of this thread
+  int x = idx % width;
+  int y = idx / width;
+
+  //Sample the value
+  data_out[y*width + x] = data_in[4*y*width + 2*x];
+}
+
+template <class T>
+void subsample(T* data, const int width, const int height) {
+  //Create new memory space (this can't actually be done in place)
+  T* data_new;
+  cudaMalloc((void**)&data_new, width*height*sizeof(T));
+
+  subsampleKernel<<<width*height/1024 + 1, 256>>>(data, data_new, width/2, height/2);
+  cudaDeviceSynchronize();
+
+  //Copy into the input
+  cudaMemcpy(data, data_new, width*height*sizeof(T), cudaMemcpyDeviceToDevice);
+
+  //Free the temporary memory slot
+  cudaFree(data_new);
+}
+
+//Declare types to generate symbols
+template void subsample<Color256>(Color256* data, const int width, const int height);
+template void subsample<uint16_t>(uint16_t* data, const int width, const int height);
 
 } // namespace sensor
 

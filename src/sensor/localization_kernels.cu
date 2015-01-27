@@ -14,8 +14,8 @@ namespace octree_slam {
 
 namespace sensor {
 
-__device__ const float DIST_THRESH = 0.01f; //Use 1cm distance threshold for correspondences
-__device__ const float NORM_THRESH = 0.95f; //Use 0.05 radians orientation threshold for correspondences
+__device__ const float DIST_THRESH = 0.10f; //Use 10 cm distance threshold for correspondences
+__device__ const float NORM_THRESH = 0.7f; //Use 30% orientation threshold for correspondences
 __device__ const int COLOR_THRESH = 50;
 
 //Define structures to be used for Mat6x6 and Vec6 for thrust summation

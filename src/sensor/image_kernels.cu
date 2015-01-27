@@ -9,12 +9,12 @@ namespace octree_slam {
 
 namespace sensor {
 
-__device__ float PI = 3.14159;
+#define PI 3.14159
 
 int GAUSS_RADIUS = 2;
-float GAUSS_SIGMA = 0.8;
+float GAUSS_SIGMA = 100.0;
 int BILATERAL_RADIUS = 2;
-float BILATERAL_SIGMA = 0.8;
+float BILATERAL_SIGMA = 100.0;
 float3 INTENSITY_RATIO = { 0.299f, 0.587f, 0.114f }; //These are taken from Kintinuous
 
 __global__ void generateVertexMapKernel(const uint16_t* depth_pixels, glm::vec3* vertex_map, const int width, const int height, const glm::vec2 focal_length) {
@@ -105,13 +105,19 @@ __host__ __device__ unsigned int co_to_idx(uint2 co, uint2 dims) {
 //This is borrowed from http://cs.au.dk/~staal/dpc/20072300_paper_final.pdf
 __global__ void bilateralFilterGPU_v2(const uint16_t* input, uint16_t* output, uint2 dims, int radius, float* kernel, float sigma_range) {
   const unsigned int idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+  //Don't do anything if the index is out of bounds
+  if (idx >= dims.x*dims.y) {
+    return;
+  }
+
   uint2 pos = idx_to_co(idx, dims);
   int img_x = pos.x;
   int img_y = pos.y;
   if (img_x >= dims.x || img_y >= dims.y) return;
-  uint16_t currentColor = input[idx];
-  uint16_t res = 0;//(0.0f, 0.0f, 0.0f);
-  uint16_t normalization = 0;//(0.0f, 0.0f, 0.0f);;
+  float currentColor = input[idx];
+  float res = 0;
+  float normalization = 0;
   for (int i = -radius; i <= radius; i++) {
     for (int j = -radius; j <= radius; j++) {
       int x_sample = img_x + i;
@@ -121,26 +127,25 @@ __global__ void bilateralFilterGPU_v2(const uint16_t* input, uint16_t* output, u
       if (y_sample < 0) y_sample = -y_sample;
       if (x_sample > dims.x - 1) x_sample = dims.x - 1 - i;
       if (y_sample > dims.y - 1) y_sample = dims.y - 1 - j;
-      uint16_t tmpColor =
+      float tmpColor =
         input[co_to_idx(make_uint2(x_sample, y_sample), dims)];
+      //Don't continue if its a bad pixel
+      if (tmpColor == 0 || tmpColor == 65535) {
+        continue;
+      }
       float gauss_spatial =
         kernel[co_to_idx(make_uint2(i + radius, j + radius), make_uint2(radius *
         2 + 1, radius * 2 + 1))];
-      uint16_t gauss_range;
+      float gauss_range;
       gauss_range = gaussian1d(currentColor - tmpColor,
         sigma_range);
-      //gauss_range.y = gaussian1d(currentColor.y - tmpColor.y,
-      //  sigma_range);
-      //gauss_range.z = gaussian1d(currentColor.z - tmpColor.z,
-      //  sigma_range);
-      uint16_t weight = gauss_spatial*gauss_range;
+      float weight = gauss_spatial*gauss_range;
       normalization = normalization + weight;
       res = res + (tmpColor * weight);
     }
   }
   res /= normalization;
-  //res.y /= normalization.y;
-  //res.z /= normalization.z;
+  //Clamp the result
   output[idx] = res;
 }
 
@@ -215,16 +220,17 @@ __global__ void bilateralFilterGPU_v5(float3* output, uint2 dims, int radius, fl
 
 extern "C" void bilateralFilter(const uint16_t* depth_in, uint16_t* filtered_out, const int width, const int height) {
   //Create the gaussian kernel and transfer to GPU memory
-  float* kernel = generateGaussianKernel(BILATERAL_RADIUS, BILATERAL_SIGMA);
+  float* kernel = generateGaussianKernel(BILATERAL_RADIUS, 10.0);
   float* d_kernel;
-  cudaMalloc((void**)&d_kernel, BILATERAL_RADIUS*BILATERAL_RADIUS*sizeof(float));
-  cudaMemcpy(d_kernel, kernel, BILATERAL_RADIUS*BILATERAL_RADIUS*sizeof(float), cudaMemcpyHostToDevice);
+  cudaMalloc((void**)&d_kernel, (BILATERAL_RADIUS * 2 + 1)*(BILATERAL_RADIUS * 2 + 1)*sizeof(float));
+  cudaMemcpy(d_kernel, kernel, (BILATERAL_RADIUS * 2 + 1)*(BILATERAL_RADIUS * 2 + 1)*sizeof(float), cudaMemcpyHostToDevice);
   delete kernel;
 
   //Use the bilateral filter kernel on the inputs
   uint2 dims = make_uint2(width, height);
   bilateralFilterGPU_v2<<<width*height/256 + 1, 256>>>(depth_in, filtered_out, dims, BILATERAL_RADIUS, d_kernel, BILATERAL_SIGMA);
   cudaDeviceSynchronize();
+  cudaFree(d_kernel);
 }
 
 __global__ void colorToIntensityKernel(const Color256* color_in, float* intensity_out, const int size, const float3 intensity_ratio) {
@@ -282,8 +288,8 @@ __global__ void gaussianFilterKernel(const T* input, T* output, uint2 dims, int 
   int img_x = pos.x;
   int img_y = pos.y;
   if (img_x >= dims.x || img_y >= dims.y) return;
-  T res = 0;
-  T normalization = 0;
+  float res = 0;
+  float normalization = 0;
   for (int i = -radius; i <= radius; i++) {
     for (int j = -radius; j <= radius; j++) {
       int x_sample = img_x + i;
@@ -293,7 +299,7 @@ __global__ void gaussianFilterKernel(const T* input, T* output, uint2 dims, int 
       if (y_sample < 0) y_sample = -y_sample;
       if (x_sample > dims.x - 1) x_sample = dims.x - 1 - i;
       if (y_sample > dims.y - 1) y_sample = dims.y - 1 - j;
-      uint16_t tmpColor =
+      float tmpColor =
         input[co_to_idx(make_uint2(x_sample, y_sample), dims)];
       float gauss_spatial =
         kernel[co_to_idx(make_uint2(i + radius, j + radius), make_uint2(radius *
@@ -311,8 +317,8 @@ void gaussianFilter(T* data, const int width, const int height) {
   //Create the gaussian kernel and transfer to GPU memory
   float* kernel = generateGaussianKernel(GAUSS_RADIUS, GAUSS_SIGMA);
   float* d_kernel;
-  cudaMalloc((void**)&d_kernel, GAUSS_RADIUS*GAUSS_RADIUS*sizeof(float));
-  cudaMemcpy(d_kernel, kernel, GAUSS_RADIUS*GAUSS_RADIUS*sizeof(float), cudaMemcpyHostToDevice);
+  cudaMalloc((void**)&d_kernel, (2*GAUSS_RADIUS+1)*(2*GAUSS_RADIUS+1)*sizeof(float));
+  cudaMemcpy(d_kernel, kernel, (2*GAUSS_RADIUS+1)*(2*GAUSS_RADIUS+1)*sizeof(float), cudaMemcpyHostToDevice);
   delete kernel;
 
   //Create new memory space (this can't actually be done in place)
@@ -329,6 +335,7 @@ void gaussianFilter(T* data, const int width, const int height) {
 
   //Free the temporary memory slot
   cudaFree(data_new);
+  cudaFree(d_kernel);
 }
 
 //template void gaussianFilter<Color256>(Color256* data, const int width, const int height);

@@ -53,7 +53,7 @@ const Camera RGBDCamera::camera() const {
 void RGBDCamera::update(const RawFrame* this_frame) {
   //Apply bilateral filter to incoming depth
   uint16_t* filtered_depth;
-  cudaMalloc((void**)&filtered_depth, this_frame->width*this_frame->height);
+  cudaMalloc((void**)&filtered_depth, this_frame->width*this_frame->height*sizeof(uint16_t));
   bilateralFilter(this_frame->depth, filtered_depth, this_frame->width, this_frame->height);
 
   //Copy the input color data so it can be modified in place while constructing the pyramid
@@ -123,8 +123,8 @@ void RGBDCamera::update(const RawFrame* this_frame) {
         solveCholesky(6, A1, b1, x);
 
         //Update position/orientation of the camera
-        update_trans = update_trans * glm::mat4(glm::mat3(1.0f, x[2], -x[1], -x[2], 1.0f, x[0], x[1], -x[0], 1.0f))
-          * glm::translate(glm::mat4(1.0f), glm::vec3(x[3], x[4], x[5]));
+        update_trans = glm::rotate( glm::rotate( glm::rotate( glm::mat4(1.0f), x[2] * 180.0f / 3.14159f, glm::vec3(0.0f, 0.0f, 1.0f)), x[1] * 180.0f / 3.14159f, glm::vec3(0.0f, 1.0f, 0.0f)), x[0] * 180.0f / 3.14159f, glm::vec3(1.0f, 0.0f, 0.0f)) //glm::mat4(glm::mat3(1.0f, x[2], -x[1], -x[2], 1.0f, x[0], x[1], -x[0], 1.0f))
+          * glm::translate(glm::mat4(1.0f), glm::vec3(x[3], x[4], x[5])) * update_trans;
       }
     }
     //Update the global transform with the result
@@ -137,7 +137,7 @@ void RGBDCamera::update(const RawFrame* this_frame) {
   }
 
   //Swap current and last frames
-  for (int i = 0; i < 1/*PYRAMID_DEPTH*/; i++) {
+  for (int i = 0; i < PYRAMID_DEPTH; i++) {
     ICPFrame* temp = current_icp_frame_[i];
     current_icp_frame_[i] = last_icp_frame_[i];
     last_icp_frame_[i] = temp;

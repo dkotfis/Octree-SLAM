@@ -41,8 +41,14 @@ void mainLoop() {
       //Draw the current camera color frame to the window
       cuda_renderer_->pixelPassthrough(camera_device_->rawFrame()->color);
     } else if (DRAW_POINT_CLOUD) {
-      octree_slam::sensor::generateVertexMap(camera_device_->rawFrame()->depth, points_, camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength());
+      //uint16_t* filtered_depth;
+      //cudaMalloc((void**)&filtered_depth, camera_device_->frameWidth()*camera_device_->frameHeight()*sizeof(uint16_t));
+      //octree_slam::sensor::bilateralFilter(camera_device_->rawFrame()->depth, filtered_depth, camera_device_->frameWidth(), camera_device_->frameHeight());
+
+      octree_slam::sensor::generateVertexMap(/*filtered_depth*/camera_device_->rawFrame()->depth, points_, camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength());
       gl_renderer_->renderPoints(points_, camera_device_->rawFrame()->color, camera_device_->frameWidth()*camera_device_->frameHeight(), camera_->camera());
+
+      //cudaFree(filtered_depth);
     } else {
       gl_renderer_->rasterize(scene_->meshes()[0], camera_->camera(), lightpos_);
     }

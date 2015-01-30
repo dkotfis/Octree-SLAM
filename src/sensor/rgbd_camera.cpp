@@ -16,8 +16,10 @@ namespace octree_slam {
 
 namespace sensor {
 
-const int RGBDCamera::PYRAMID_ITERS[] = {4, 5, 10};
+const int RGBDCamera::PYRAMID_ITERS[] = {9, 6, 3};
 const float RGBDCamera::W_RGBD = 0.1;
+const float RGBDCamera::MOVE_THRESH = 0.1;
+const float RGBDCamera::TURN_THRESH = 0.1;
 
 RGBDCamera::RGBDCamera(const int width, const int height, const glm::vec2 &focal_length) : 
   width_(width), height_(height), focal_length_(focal_length), pass_(0) {
@@ -123,12 +125,17 @@ void RGBDCamera::update(const RawFrame* this_frame) {
         solveCholesky(6, A1, b1, x);
 
         //Update position/orientation of the camera
-        update_trans = glm::rotate( glm::rotate( glm::rotate( glm::mat4(1.0f), x[2] * 180.0f / 3.14159f, glm::vec3(0.0f, 0.0f, 1.0f)), x[1] * 180.0f / 3.14159f, glm::vec3(0.0f, 1.0f, 0.0f)), x[0] * 180.0f / 3.14159f, glm::vec3(1.0f, 0.0f, 0.0f)) //glm::mat4(glm::mat3(1.0f, x[2], -x[1], -x[2], 1.0f, x[0], x[1], -x[0], 1.0f))
-          * glm::translate(glm::mat4(1.0f), glm::vec3(x[3], x[4], x[5])) * update_trans;
+        update_trans = glm::rotate(glm::mat4(1.0f), x[2] * 180.0f / 3.14159f, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::rotate(glm::mat4(1.0f), x[1] * 180.0f / 3.14159f, glm::vec3(0.0f, 1.0f, 0.0f)) 
+          * glm::rotate(glm::mat4(1.0f), x[0] * 180.0f / 3.14159f, glm::vec3(1.0f, 0.0f, 0.0f)) * glm::translate(glm::mat4(1.0f), glm::vec3(x[3], x[4], x[5])) * update_trans;
+
+        //Determine whether it is close enough
+        if (glm::length(glm::vec3(x[3], x[4], x[5])) < MOVE_THRESH && glm::length(glm::vec3(x[0], x[1], x[2])) < TURN_THRESH) {
+          break;
+        }
       }
     }
     //Update the global transform with the result
-    position_ = glm::vec3(update_trans * glm::vec4(position_, 1.0f)); //TODO: Is this right?
+    position_ = glm::vec3(update_trans * glm::vec4(position_, 1.0f));
     orientation_ = glm::mat3(update_trans * glm::mat4(orientation_));
   }
 

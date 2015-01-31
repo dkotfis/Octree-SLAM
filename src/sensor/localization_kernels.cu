@@ -16,7 +16,6 @@ namespace sensor {
 
 __device__ const float DIST_THRESH = 0.10f; //Use 10 cm distance threshold for correspondences
 __device__ const float NORM_THRESH = 0.7f; //Use 30% orientation threshold for correspondences
-__device__ const int COLOR_THRESH = 50;
 
 //Define structures to be used for Mat6x6 and Vec6 for thrust summation
 struct Mat6x6 {
@@ -56,13 +55,11 @@ __host__ __device__ inline Vec6 operator+(const Vec6& lhs, const Vec6& rhs) {
 }
 
 ICPFrame::ICPFrame(const int w, const int h) : width(w), height(h) {
-  cudaMalloc((void**)&color, width*height*sizeof(Color256));
   cudaMalloc((void**)&vertex, width*height*sizeof(glm::vec3));
   cudaMalloc((void**)&normal, width*height*sizeof(glm::vec3));
 };
 
 ICPFrame::~ICPFrame() {
-  cudaFree(color);
   cudaFree(vertex);
   cudaFree(normal);
 }
@@ -77,8 +74,7 @@ RGBDFrame::~RGBDFrame() {
   cudaFree(vertex);
 }
 
-__global__ void computeICPCorrespondences(const Color256* last_frame_color, const glm::vec3* last_frame_vertex, const glm::vec3* last_frame_normal, 
-    const Color256* this_frame_color, const glm::vec3* this_frame_vertex, const glm::vec3* this_frame_normal, 
+__global__ void computeICPCorrespondences(const glm::vec3* last_frame_vertex, const glm::vec3* last_frame_normal, const glm::vec3* this_frame_vertex, const glm::vec3* this_frame_normal, 
     const int num_points, bool* stencil, int* num_corr) {
 
   int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -109,12 +105,6 @@ __global__ void computeICPCorrespondences(const Color256* last_frame_color, cons
   if (!is_match || glm::dot(this_frame_normal[idx], last_frame_normal[idx]) < NORM_THRESH) {
     is_match = false;
   }
-
-  //Check color difference
-  /*if (!is_match || abs(this_frame_color[idx].r - last_frame_color[idx].r) + abs(this_frame_color[idx].g - last_frame_color[idx].g) 
-    + abs(this_frame_color[idx].b - last_frame_color[idx].b) > COLOR_THRESH) {
-    is_match = false;
-  }*/
 
   //Update result
   stencil[idx] = is_match;
@@ -159,6 +149,70 @@ __global__ void computeICPCostsKernel(const glm::vec3* last_frame_normal, const 
   }
 }
 
+__global__ void computeICPCostsUncorrespondedKernel(const glm::vec3* last_frame_normal, const glm::vec3* last_frame_vertex, const glm::vec3* this_frame_normal, 
+  const glm::vec3* this_frame_vertex, const int num_points, Mat6x6* As, Vec6* bs) {
+
+  int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+  //Don't do anything if the index is out of bounds
+  if (idx >= num_points) {
+    return;
+  }
+
+  //Init outputs
+  for (int i = 0; i < 6; i++) {
+    for (int j = 0; j < 6; j++) {
+      As[idx].values[6 * i + j] = 0.0f;
+    }
+    bs[idx].values[i] = 0.0f;
+  }
+
+  //Get the vertex and normal values
+  glm::vec3 v2 = this_frame_vertex[idx];
+  glm::vec3 n2 = this_frame_normal[idx];
+  glm::vec3 v1 = last_frame_vertex[idx];
+  glm::vec3 n1 = last_frame_normal[idx];
+
+  //Check whether points are any good
+  if (!isfinite(v2.x) || !isfinite(v2.y) || !isfinite(v2.z)
+    || !isfinite(v1.x) || !isfinite(v1.y) || !isfinite(v1.z)) {
+    return;
+  }
+  if (!isfinite(n2.x) || !isfinite(n2.y) || !isfinite(n2.z)
+    || !isfinite(n1.x) || !isfinite(n1.y) || !isfinite(n1.z)) {
+    return;
+  }
+
+  //Check position difference
+  if (glm::length(v2 - v1) > DIST_THRESH) {
+    return;
+  }
+
+  //Check normal difference
+  if (glm::dot(n2, n1) < NORM_THRESH) {
+    return;
+  }
+
+  //Construct A_T
+  float G_T[18] = { 0.0f, -v2.z, v2.y, v2.z, 0.0f, -v2.x, -v2.y, v2.x, 0.0f,
+    1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+  float A_T[6];
+  for (int i = 0; i < 6; i++) {
+    A_T[i] = G_T[3 * i] * n1.x + G_T[3 * i + 1] * n1.y + G_T[3 * i + 2] * n1.z;
+  }
+
+  //Construct b
+  float b = glm::dot(n1, v1 - v2);
+
+  //Compute outputs
+  for (int i = 0; i < 6; i++) {
+    for (int j = 0; j < 6; j++) {
+      As[idx].values[6 * i + j] = A_T[i] * A_T[j];
+    }
+    bs[idx].values[i] = b*A_T[i];
+  }
+}
+
 extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_frame, float* A, float* b) {
   //TODO: Verify that the two frames are the same size
 
@@ -169,7 +223,7 @@ extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_
   cudaMalloc((void**)&d_stencil, num_correspondences * sizeof(bool));
   cudaMalloc((void**)&d_num_corr, sizeof(int));
   cudaMemcpy(d_num_corr, &num_correspondences, sizeof(int), cudaMemcpyHostToDevice); //Initialize to the total points. Assume that most points will be valid
-  computeICPCorrespondences<<<num_correspondences / 256 + 1, 256>>>(last_frame->color, last_frame->vertex, last_frame->normal, this_frame.color, this_frame.vertex, this_frame.normal, 
+  computeICPCorrespondences<<<num_correspondences / 256 + 1, 256>>>(last_frame->vertex, last_frame->normal, this_frame.vertex, this_frame.normal, 
     num_correspondences, d_stencil, d_num_corr);
   cudaDeviceSynchronize();
 
@@ -219,6 +273,35 @@ extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_
   cudaFree(last_frame_reduced_vertex);
   cudaFree(last_frame_reduced_normal);
   cudaFree(this_frame_reduced_vertex);
+
+  //Sum terms (reduce) with thrust
+  thrust::device_ptr<Mat6x6> thrust_A = thrust::device_pointer_cast<Mat6x6>(d_A);
+  Mat6x6 matA = thrust::reduce(thrust_A, thrust_A + num_correspondences);
+  thrust::device_ptr<Vec6> thrust_b = thrust::device_pointer_cast<Vec6>(d_b);
+  Vec6 vecb = thrust::reduce(thrust_b, thrust_b + num_correspondences);
+
+  //Free up device memory
+  cudaFree(d_A);
+  cudaFree(d_b);
+
+  //Copy result to output
+  memcpy(A, matA.values, 36 * sizeof(float));
+  memcpy(b, vecb.values, 6 * sizeof(float));
+}
+
+extern "C" void computeICPCost2(const ICPFrame* last_frame, const ICPFrame &this_frame, float* A, float* b) {
+  //TODO: Verify that the two frames are the same size
+
+  //Assume all are correspondences 
+  int num_correspondences = this_frame.width * this_frame.height;
+
+  //Compute cost terms
+  Mat6x6* d_A;
+  Vec6* d_b;
+  cudaMalloc((void**)&d_A, num_correspondences * sizeof(Mat6x6));
+  cudaMalloc((void**)&d_b, num_correspondences * sizeof(Vec6));
+  computeICPCostsUncorrespondedKernel << <num_correspondences / 256 + 1, 256 >> >(last_frame->normal, last_frame->vertex, this_frame.normal, this_frame.vertex, num_correspondences, d_A, d_b);
+  cudaDeviceSynchronize();
 
   //Sum terms (reduce) with thrust
   thrust::device_ptr<Mat6x6> thrust_A = thrust::device_pointer_cast<Mat6x6>(d_A);

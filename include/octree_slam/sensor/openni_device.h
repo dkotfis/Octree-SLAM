@@ -1,6 +1,8 @@
 #ifndef OPENNI_DEVICE_H_
 #define OPENNI_DEVICE_H_
 
+#include <time.h>
+
 // OpenGL Dependency
 #include <GL/glew.h>
 #include <glm/glm.hpp>
@@ -58,8 +60,17 @@ private:
   //Focal length
   glm::vec2 depth_focal_;
 
+  //The framerate of the camera stream
+  int fps_;
+
   //Current frame data in GPU memory
   RawFrame* raw_frame_;
+
+  //The most recent frame timestamp
+  long long timestamp_;
+
+  //The most recent frame time
+  clock_t time_;
 
 }; //class OpenNIDevice
 

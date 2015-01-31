@@ -16,10 +16,10 @@ namespace octree_slam {
 
 namespace sensor {
 
-const int RGBDCamera::PYRAMID_ITERS[] = {9, 6, 3};
+const int RGBDCamera::PYRAMID_ITERS[] = {4, 5, 10};
 const float RGBDCamera::W_RGBD = 0.1;
 const float RGBDCamera::MOVE_THRESH = 0.1;
-const float RGBDCamera::TURN_THRESH = 0.1;
+const float RGBDCamera::TURN_THRESH = 0.05;
 
 RGBDCamera::RGBDCamera(const int width, const int height, const glm::vec2 &focal_length) : 
   width_(width), height_(height), focal_length_(focal_length), pass_(0) {
@@ -29,13 +29,13 @@ RGBDCamera::~RGBDCamera() {
   if (pass_ >= 1) {
     for (int i = 0; i < PYRAMID_DEPTH; i++) {
       delete last_icp_frame_[i];
-      //delete last_rgbd_frame_[i];
+      delete last_rgbd_frame_[i];
     }
   }
   if (pass_ >= 2) {
     for (int i = 0; i < PYRAMID_DEPTH; i++) {
       delete current_icp_frame_[i];
-      //delete current_rgbd_frame_[i];
+      delete current_rgbd_frame_[i];
     }
   }
 }
@@ -57,39 +57,44 @@ void RGBDCamera::update(const RawFrame* this_frame) {
   uint16_t* filtered_depth;
   cudaMalloc((void**)&filtered_depth, this_frame->width*this_frame->height*sizeof(uint16_t));
   bilateralFilter(this_frame->depth, filtered_depth, this_frame->width, this_frame->height);
+  //cudaMemcpy(filtered_depth, this_frame->depth, this_frame->width*this_frame->height*sizeof(uint16_t), cudaMemcpyDeviceToDevice);
 
-  //Copy the input color data so it can be modified in place while constructing the pyramid
-  Color256* temp_color;
-  cudaMalloc((void**)&temp_color, this_frame->width*this_frame->height*sizeof(Color256));
-  cudaMemcpy(temp_color, this_frame->color, this_frame->width*this_frame->height*sizeof(Color256), cudaMemcpyDeviceToDevice);
+  //Convert the input color data to intensity
+  float* temp_intensity;
+  cudaMalloc((void**)&temp_intensity, this_frame->width*this_frame->height*sizeof(float));
+  colorToIntensity(this_frame->color, temp_intensity, this_frame->width*this_frame->height);
 
   //Create pyramids
   for (int i = 0; i < PYRAMID_DEPTH; i++) {
     //Fill in sizes the first two times through
     if (pass_ < 2) {
       current_icp_frame_[i] = new ICPFrame(this_frame->width/pow(2,i), this_frame->height/pow(2,i));
-      //current_rgbd_frame_[i] = new RGBDFrame(this_frame->width/pow(2,i), this_frame->height/pow(2,i));
+      current_rgbd_frame_[i] = new RGBDFrame(this_frame->width/pow(2,i), this_frame->height/pow(2,i));
     }
 
     //Add ICP data
     generateVertexMap(filtered_depth, current_icp_frame_[i]->vertex, current_icp_frame_[i]->width, current_icp_frame_[i]->height, focal_length_);
     generateNormalMap(current_icp_frame_[i]->vertex, current_icp_frame_[i]->normal, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
-    cudaMemcpy(current_icp_frame_[i]->color, temp_color, current_icp_frame_[i]->width*current_icp_frame_[i]->height*sizeof(Color256), cudaMemcpyDeviceToDevice);
 
-    //TODO: RGBD Stuff
+    //Add RGBD data
+    cudaMemcpy(current_rgbd_frame_[i]->vertex, current_icp_frame_[i]->vertex, current_rgbd_frame_[i]->width*current_rgbd_frame_[i]->height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(current_rgbd_frame_[i]->intensity, temp_intensity, current_rgbd_frame_[i]->width*current_rgbd_frame_[i]->height*sizeof(float), cudaMemcpyDeviceToDevice);
 
     //Downsample depth and color if not the last iteration
     if (i != (PYRAMID_DEPTH-1)) {
       gaussianFilter(filtered_depth, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
-      //gaussianFilter(temp_color, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
+      gaussianFilter(temp_intensity, current_rgbd_frame_[i]->width, current_rgbd_frame_[i]->height);
+      cudaDeviceSynchronize();
+
       subsample(filtered_depth, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
-      subsample(temp_color, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
+      subsample(temp_intensity, current_rgbd_frame_[i]->width, current_rgbd_frame_[i]->height);
+      cudaDeviceSynchronize();
     }
   }
 
   //Clear the filtered depth and temporary color since they are no longer needed
   cudaFree(filtered_depth);
-  cudaFree(temp_color);
+  cudaFree(temp_intensity);
 
   if (pass_ >= 1) {
     glm::mat4 update_trans(1.0f);
@@ -97,10 +102,14 @@ void RGBDCamera::update(const RawFrame* this_frame) {
     //Loop through pyramids backwards (coarse first)
     for (int i = PYRAMID_DEPTH - 1; i >= 0; i--) {
       //Get a copy of the ICP frame for this pyramid level
-      ICPFrame icp_f(current_icp_frame_[PYRAMID_DEPTH - 1 - i]->width, current_icp_frame_[PYRAMID_DEPTH - 1 - i]->height);
-      cudaMemcpy(icp_f.color, current_icp_frame_[PYRAMID_DEPTH - 1 - i]->color, icp_f.width*icp_f.height*sizeof(Color256), cudaMemcpyDeviceToDevice);
-      cudaMemcpy(icp_f.vertex, current_icp_frame_[PYRAMID_DEPTH - 1 - i]->vertex, icp_f.width*icp_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
-      cudaMemcpy(icp_f.normal, current_icp_frame_[PYRAMID_DEPTH - 1 - i]->normal, icp_f.width*icp_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+      ICPFrame icp_f(current_icp_frame_[i]->width, current_icp_frame_[i]->height);
+      cudaMemcpy(icp_f.vertex, current_icp_frame_[i]->vertex, icp_f.width*icp_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+      cudaMemcpy(icp_f.normal, current_icp_frame_[i]->normal, icp_f.width*icp_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+
+      //Get a copy of the RGBD frame for this pyramid level
+      RGBDFrame rgbd_f(current_rgbd_frame_[PYRAMID_DEPTH - 1 - i]->width, current_rgbd_frame_[PYRAMID_DEPTH - 1 - i]->height);
+      cudaMemcpy(rgbd_f.vertex, current_rgbd_frame_[PYRAMID_DEPTH - 1 - i]->vertex, rgbd_f.width*rgbd_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+      cudaMemcpy(rgbd_f.intensity, current_rgbd_frame_[PYRAMID_DEPTH - 1 - i]->intensity, rgbd_f.width*rgbd_f.height*sizeof(float), cudaMemcpyDeviceToDevice);
 
       //Update this_frame vertex/normal maps for the next iteration
       if (i != 0) {
@@ -113,12 +122,20 @@ void RGBDCamera::update(const RawFrame* this_frame) {
         //Get the Geometric ICP cost values
         float A1[6 * 6];
         float b1[6];
-        computeICPCost(last_icp_frame_[PYRAMID_DEPTH - 1 - i], icp_f, A1, b1);
+        computeICPCost(last_icp_frame_[i], icp_f, A1, b1);
 
         //Get the Photometric RGB-D cost values
         //float A2[6*6];
         //float b2[6];
         //compueRGBDCost(last_rgbd_frame_, rgbd_f, A2, b2);
+
+        //Combine the two
+        for (size_t k = 0; k < 6; k++) {
+          for (size_t l = 0; l < 6; l++) {
+            //A1[6 * k + l] += A2[6 * k + l];
+          }
+          //b1[k] += b2[k];
+        }
 
         //Solve for the optimized camera transformation
         float x[6];
@@ -132,6 +149,7 @@ void RGBDCamera::update(const RawFrame* this_frame) {
         if (glm::length(glm::vec3(x[3], x[4], x[5])) < MOVE_THRESH && glm::length(glm::vec3(x[0], x[1], x[2])) < TURN_THRESH) {
           break;
         }
+        //TODO: Check to see if it got worse than the last iteration
       }
     }
     //Update the global transform with the result
@@ -149,9 +167,9 @@ void RGBDCamera::update(const RawFrame* this_frame) {
     current_icp_frame_[i] = last_icp_frame_[i];
     last_icp_frame_[i] = temp;
     //TODO: Longterm, only RGBD should do this. ICP should not swap, as last_frame should be updated by a different function
-    //RGBDFrame* temp2 = current_rgbd_frame_[i];
-    //current_rgbd_frame_[i] = last_rgbd_frame_[i];
-    //last_rgbd_frame_[i] = temp2;
+    RGBDFrame* temp2 = current_rgbd_frame_[i];
+    current_rgbd_frame_[i] = last_rgbd_frame_[i];
+    last_rgbd_frame_[i] = temp2;
   }
 
 }

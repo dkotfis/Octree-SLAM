@@ -34,6 +34,16 @@ OpenNIDevice::OpenNIDevice() {
   } else {
     printf("[OpenNIDevice] ERROR: OpenNI Device does not support color!");
   }
+
+  //Turn off autoexposure and white balancing
+  checkONIError(color_->getCameraSettings()->setAutoExposureEnabled(false));
+  checkONIError(color_->getCameraSettings()->setAutoWhiteBalanceEnabled(false));
+
+  //Turn on color/depth synchronization
+  device_->setDepthColorSyncEnabled(true);
+  device_->setImageRegistrationMode(openni::ImageRegistrationMode::IMAGE_REGISTRATION_DEPTH_TO_COLOR);
+
+  //Start video streams
   checkONIError(depth_->start());
   checkONIError(color_->start());
 
@@ -53,6 +63,12 @@ OpenNIDevice::OpenNIDevice() {
   //Compute focal lengths
   depth_focal_.x = (float) raw_frame_->width / (2.0f * tan(0.5f * depth_->getHorizontalFieldOfView()));
   depth_focal_.y = (float) raw_frame_->height / (2.0f * tan(0.5f * depth_->getVerticalFieldOfView()));
+
+  //Get the framerate
+  fps_ = frame.getVideoMode().getFps();
+
+  //Initialize the clock
+  time_ = clock();
 }
 
 OpenNIDevice::~OpenNIDevice() {
@@ -79,6 +95,13 @@ OpenNIDevice::~OpenNIDevice() {
 
 long long OpenNIDevice::readFrame() {
 
+  //Don't do anything if a new frame isn't going to be ready
+  if ((float) (clock() - time_)/1000.0f < 1.0f/(float)fps_) {
+    return timestamp_;
+  } else {
+    time_ = clock();
+  }
+
   //Read a depth frame from the device
   openni::VideoFrameRef frame;
   checkONIError(depth_->readFrame(&frame));
@@ -94,13 +117,12 @@ long long OpenNIDevice::readFrame() {
     printf("[OpenNIDevice] ERROR: Received a frame of unexpected size.");
   }
 
-  //Get timestamp from frame
-  //TODO: Skip the frame if we've already seen this timestamp
-  long long timestamp = (long long)frame.getTimestamp();
-
   //Get data from frame and copy to GPU
   openni::DepthPixel* pixel_depth = (openni::DepthPixel*) frame.getData();
   cudaMemcpy(raw_frame_->depth, pixel_depth, raw_frame_->width*raw_frame_->height*sizeof(openni::DepthPixel), cudaMemcpyHostToDevice);
+
+  //Get timestamp from frame
+  timestamp_ = (long long)frame.getTimestamp();
 
   //Read a color frame from the device
   checkONIError(color_->readFrame(&frame));
@@ -121,7 +143,7 @@ long long OpenNIDevice::readFrame() {
   openni::RGB888Pixel* pixel_color = (openni::RGB888Pixel*) frame.getData();
   cudaMemcpy(raw_frame_->color, pixel_color, raw_frame_->width*raw_frame_->height*sizeof(openni::RGB888Pixel), cudaMemcpyHostToDevice);
 
-  return timestamp;
+  return timestamp_;
 }
 
 void OpenNIDevice::checkONIError(const openni::Status& error) {

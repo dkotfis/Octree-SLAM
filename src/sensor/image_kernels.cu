@@ -112,16 +112,15 @@ __global__ void bilateralFilterGPU_v2(const uint16_t* input, uint16_t* output, u
   }
 
   uint2 pos = idx_to_co(idx, dims);
-  int img_x = pos.x;
-  int img_y = pos.y;
-  if (img_x >= dims.x || img_y >= dims.y) return;
   float currentColor = input[idx];
   float res = 0;
   float normalization = 0;
+
   for (int i = -radius; i <= radius; i++) {
     for (int j = -radius; j <= radius; j++) {
-      int x_sample = img_x + i;
-      int y_sample = img_y + j;
+      int x_sample = pos.x + i;
+      int y_sample = pos.y + j;
+
       //mirror edges
       if (x_sample < 0) x_sample = -x_sample;
       if (y_sample < 0) y_sample = -y_sample;
@@ -129,6 +128,7 @@ __global__ void bilateralFilterGPU_v2(const uint16_t* input, uint16_t* output, u
       if (y_sample > dims.y - 1) y_sample = dims.y - 1 - j;
       float tmpColor =
         input[co_to_idx(make_uint2(x_sample, y_sample), dims)];
+
       //Don't continue if its a bad pixel
       if (tmpColor == 0 || tmpColor == 65535) {
         continue;
@@ -145,7 +145,7 @@ __global__ void bilateralFilterGPU_v2(const uint16_t* input, uint16_t* output, u
     }
   }
   res /= normalization;
-  //Clamp the result
+
   output[idx] = res;
 }
 
@@ -251,34 +251,52 @@ extern "C" void colorToIntensity(const Color256* color_in, float* intensity_out,
 }
 
 
-__global__ void transformVertexMapKernel(glm::vec3* vertex, const glm::mat4 trans, const int size) {
+__global__ void transformVertexMapKernel(glm::vec3* vertex, const glm::mat4 trans, const int size, const int load_size) {
   int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
   //Don't do anything if the index is out of bounds
-  if (idx >= size) {
+  if (idx*load_size >= size) {
     return;
   }
-  vertex[idx] = glm::vec3(trans*glm::vec4(vertex[idx], 1.0f));
+
+  //Determine whether the full load is in the bounds
+  int bound = load_size;
+  if ((idx+1)*load_size - size > 0 ) {
+    bound -= (idx + 1)*load_size - size;
+  }
+
+  for (size_t i = 0; i < bound; i++) {
+    vertex[load_size*idx + i] = glm::vec3(trans*glm::vec4(vertex[load_size*idx + i], 1.0f));
+  }
 }
 
 extern "C" void transformVertexMap(glm::vec3* vertex_map, const glm::mat4 &trans, const int size) {
-  transformVertexMapKernel<<<size / 256 + 1, 256>>>(vertex_map, trans, size);
-  cudaDeviceSynchronize();
+  int load_size = 16;
+  transformVertexMapKernel<<<size / 256 / load_size + 1, 256>>>(vertex_map, trans, size, load_size);
 }
 
-__global__ void transformNormalMapKernel(glm::vec3* normal, const glm::mat4 trans, const int size) {
+__global__ void transformNormalMapKernel(glm::vec3* normal, const glm::mat4 trans, const int size, const int load_size) {
   int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
   //Don't do anything if the index is out of bounds
-  if (idx >= size) {
+  if (idx*load_size >= size) {
     return;
   }
-  normal[idx] = glm::vec3(trans*glm::vec4(normal[idx], 0.0f));
+
+  //Determine whether the full load is in the bounds
+  int bound = load_size;
+  if ((idx + 1)*load_size - size > 0) {
+    bound -= (idx + 1)*load_size - size;
+  }
+
+  for (size_t i = 0; i < bound; i++) {
+    normal[load_size*idx + i] = glm::vec3(trans*glm::vec4(normal[load_size*idx + i], 0.0f));
+  }
 }
 
 extern "C" void transformNormalMap(glm::vec3* normal_map, const glm::mat4 &trans, const int size) {
-  transformNormalMapKernel<<<size / 256 + 1, 256>>>(normal_map, trans, size);
-  cudaDeviceSynchronize();
+  int load_size = 16;
+  transformNormalMapKernel<<<size / 256 / load_size + 1, 256>>>(normal_map, trans, size, load_size);
 }
 
 template <class T>
@@ -340,6 +358,7 @@ void gaussianFilter(T* data, const int width, const int height) {
 
 //template void gaussianFilter<Color256>(Color256* data, const int width, const int height);
 template void gaussianFilter<uint16_t>(uint16_t* data, const int width, const int height);
+template void gaussianFilter<float>(float* data, const int width, const int height);
 
 template <class T>
 __global__ void subsampleKernel(const T* data_in, T* data_out, const int width, const int height) {
@@ -377,6 +396,7 @@ void subsample(T* data, const int width, const int height) {
 //Declare types to generate symbols
 template void subsample<Color256>(Color256* data, const int width, const int height);
 template void subsample<uint16_t>(uint16_t* data, const int width, const int height);
+template void subsample<float>(float* data, const int width, const int height);
 
 } // namespace sensor
 

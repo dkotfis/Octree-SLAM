@@ -17,7 +17,6 @@ namespace sensor {
 struct ICPFrame {
   ICPFrame(const int w, const int h);
   ~ICPFrame();
-  Color256* color;
   glm::vec3* vertex;
   glm::vec3* normal;
   int width;
@@ -35,6 +34,9 @@ struct RGBDFrame {
 
 //Computes ICP cost terms from GPU vertex/normal/color maps and fills in matrices in CPU memory
 extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame& this_frame, float* A, float* b);
+
+//Computes ICP cost terms with a single kernel determining correspondences and computing cost
+extern "C" void computeICPCost2(const ICPFrame* last_frame, const ICPFrame& this_frame, float* A, float* b);
 
 //Computes RGBD cost terms from GPU vertex/normal/color maps and fills in matrices in CPU memory
 extern "C" void computeRGBDCost(const RGBDFrame* last_frame, const RGBDFrame& this_frame, float* A, float* b);

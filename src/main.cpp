@@ -32,7 +32,7 @@ void mainLoop() {
     if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
       camera_device_->readFrame();
       camera_estimation_->update(camera_device_->rawFrame());
-      printf("Current position: (%f, %f, %f).\n", camera_estimation_->position().x, camera_estimation_->position().y, camera_estimation_->position().z);
+      //printf("Current position: (%f, %f, %f).\n", camera_estimation_->position().x, camera_estimation_->position().y, camera_estimation_->position().z);
     }
 
     camera_->update();
@@ -49,6 +49,7 @@ void mainLoop() {
 
       octree_slam::sensor::generateVertexMap(/*filtered_depth*/camera_device_->rawFrame()->depth, points_, camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength());
       octree_slam::sensor::transformVertexMap(points_, glm::mat4(camera_estimation_->orientation()) * glm::translate(glm::mat4(1.0f), camera_estimation_->position()), camera_device_->frameWidth()*camera_device_->frameHeight());
+      cudaDeviceSynchronize();
       gl_renderer_->renderPoints(points_, camera_device_->rawFrame()->color, camera_device_->frameWidth()*camera_device_->frameHeight(), camera_->camera());
 
       //cudaFree(filtered_depth);
@@ -77,6 +78,7 @@ void mainLoop() {
 }
 
 bool init(int argc, char* argv[]) {
+  /*
   int choice = 2;
   std::cout << "Please enter which scene to load? '1'(dragon), '2'(cow), '3'(bunny)." << std::endl;
   std::cin >> choice;
@@ -103,6 +105,7 @@ bool init(int argc, char* argv[]) {
   if (VOXELIZE) {
     scene_->voxelizeMeshes(OCTREE);
   }
+  */
 
 	glfwSetErrorCallback(errorCallback);
 

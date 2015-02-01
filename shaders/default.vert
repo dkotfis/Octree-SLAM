@@ -1,5 +1,4 @@
 uniform mat4 u_mvpMatrix;
-uniform mat4 u_projMatrix;
 uniform mat3 u_normMatrix;
 
 attribute vec3 v_position;

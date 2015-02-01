@@ -162,6 +162,25 @@ __global__ void createCubeMesh(int* voxels, int* values, int M, int T, float3 bb
 
 }
 
+__global__ void createVoxelGrid(int* voxels, int* values, int M, int T, float3 bbox0, float3 t_d, float3 p_d, int num_voxels, glm::vec4* centers, glm::vec4* colors) {
+
+  //Get the index for the thread
+  int idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+  if (idx < num_voxels) {
+
+    float3 center = getCenterFromIndex(voxels[idx], M, T, bbox0, t_d, p_d);
+    centers[idx] = glm::vec4(center.x, center.y, center.z, 1.0f);
+
+    int color = values[idx];
+    colors[idx].r = (float)((color & 0xFF) / 255.0);
+    colors[idx].g = (float)(((color >> 8) & 0xFF) / 255.0);
+    colors[idx].b = (float)(((color >> 16) & 0xFF) / 255.0);
+
+  }
+
+}
+
 __host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_values) {
 
   //Initialize sizes
@@ -323,6 +342,29 @@ __host__ void voxelizeToCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &
 
   cudaFree(d_voxels);
   cudaFree(d_values);
+}
+
+__host__ void voxelizeToGrid(Mesh &m_in, bmp_texture* tex, VoxelGrid &grid_out) {
+  //Voxelize the mesh input
+  int numVoxels = N*N*N;
+  int* d_voxels;
+  int* d_values;
+  cudaMalloc((void**)&d_voxels, numVoxels*sizeof(int));
+  cudaMalloc((void**)&d_values, numVoxels*sizeof(int));
+  numVoxels = voxelizeMesh(m_in, tex, d_voxels, d_values);
+
+  //Extract centers and colors
+  cudaMalloc((void**)&(grid_out.centers), numVoxels*sizeof(glm::vec4));
+  cudaMalloc((void**)&(grid_out.colors), numVoxels*sizeof(glm::vec4));
+  createVoxelGrid<<<numVoxels / 256 + 1, 256>>>(d_voxels, d_values, M, T, params.bbox0, params.t_d, params.p_d, numVoxels, grid_out.centers, grid_out.colors);
+
+  //Free old memory from the grid
+  cudaFree(d_voxels);
+  cudaFree(d_values);
+
+  //Set the scale and size
+  grid_out.scale = params.vox_size;
+  grid_out.size = numVoxels;
 }
 
 __host__ void setWorldSize(float minx, float miny, float minz, float maxx, float maxy, float maxz) {

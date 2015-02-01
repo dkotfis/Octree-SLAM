@@ -15,11 +15,13 @@ class OpenGLRenderer {
 
 public:
 
-  OpenGLRenderer(const bool voxelize, const std::string &path_prefix);
+  OpenGLRenderer(const std::string &path_prefix);
 
   ~OpenGLRenderer();
 
   void rasterize(const Mesh &geometry, const Camera &camera, const glm::vec3 &light);
+
+  void rasterizeVoxels(const VoxelGrid &geometry, const Camera &camera, const glm::vec3 &light);
 
   void renderPoints(const glm::vec3* positions, const Color256* colors, const int num, const Camera &camera);
 
@@ -27,21 +29,16 @@ private:
 
   static float newcbo_[9];
 
-  const bool voxelized_;
-
   //GLSL Programs
   GLuint default_program_;
   GLuint voxel_program_;
   GLuint points_program_;
 
-  // Uniform locations for the shaders
-  GLuint mvp_location_;
-  GLuint proj_location_;
-  GLuint norm_location_;
-  GLuint light_location_;
-
   // VAO's
   GLuint buffers_[3];
+
+  // Textures
+  GLuint textures_[2];
 
 }; // class OpenGLRenderer
 

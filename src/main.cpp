@@ -53,6 +53,8 @@ void mainLoop() {
       gl_renderer_->renderPoints(points_, camera_device_->rawFrame()->color, camera_device_->frameWidth()*camera_device_->frameHeight(), camera_->camera());
 
       //cudaFree(filtered_depth);
+    } else if (VOXELIZE) {
+      gl_renderer_->rasterizeVoxels(scene_->voxel_grid(), camera_->camera(), lightpos_);
     } else {
       gl_renderer_->rasterize(scene_->meshes()[0], camera_->camera(), lightpos_);
     }
@@ -78,7 +80,7 @@ void mainLoop() {
 }
 
 bool init(int argc, char* argv[]) {
-  /*
+
   int choice = 2;
   std::cout << "Please enter which scene to load? '1'(dragon), '2'(cow), '3'(bunny)." << std::endl;
   std::cin >> choice;
@@ -105,7 +107,6 @@ bool init(int argc, char* argv[]) {
   if (VOXELIZE) {
     scene_->voxelizeMeshes(OCTREE);
   }
-  */
 
 	glfwSetErrorCallback(errorCallback);
 
@@ -142,7 +143,7 @@ bool init(int argc, char* argv[]) {
     int height = DRAW_CAMERA_COLOR ? camera_device_->frameHeight() : height_;
     cuda_renderer_ = new octree_slam::rendering::CUDARenderer(VOXELIZE, path_prefix, width, height);
 	} else if (DRAW_POINT_CLOUD || (!USE_CUDA_RASTERIZER && !DRAW_CAMERA_COLOR)) {
-    gl_renderer_ = new octree_slam::rendering::OpenGLRenderer(VOXELIZE, path_prefix);
+    gl_renderer_ = new octree_slam::rendering::OpenGLRenderer(path_prefix);
 	}
 
 	return true;

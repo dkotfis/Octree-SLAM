@@ -20,11 +20,15 @@ namespace rendering {
 
 float OpenGLRenderer::newcbo_[9] = { 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0 };
 
-OpenGLRenderer::OpenGLRenderer(const bool voxelize, const std::string& path_prefix) : voxelized_(voxelize) {
+OpenGLRenderer::OpenGLRenderer(const std::string& path_prefix) {
 
   glGenBuffers(3, buffers_);
+  glGenTextures(2, textures_);
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
+  glEnable(GL_TEXTURE_BUFFER);
+
+  glActiveTexture(GL_TEXTURE0);
 
   const char *attribLocations[] = { "v_position", "v_normal" };
   const char *attribLocations2[] = { "v_position", "v_normal", "v_color" };
@@ -38,7 +42,7 @@ OpenGLRenderer::OpenGLRenderer(const bool voxelize, const std::string& path_pref
   const char *vertShader1 = vs.c_str();
   const char *fragShader1 = fs.c_str();
 
-  voxel_program_ = glslUtility::createProgram(attribLocations, 2, vertShader1, fragShader1);
+  voxel_program_ = glslUtility::createProgram(attribLocations, 0, vertShader1, fragShader1);
 
   vs = path_prefix + "../shaders/default.vert";
   fs = path_prefix + "../shaders/default.frag";
@@ -55,13 +59,6 @@ OpenGLRenderer::OpenGLRenderer(const bool voxelize, const std::string& path_pref
   const char *fragShader3 = fs.c_str();
 
   points_program_ = glslUtility::createProgram(attribLocations3, 2, vertShader3, fragShader3);
-
-  glUseProgram(default_program_);
-
-  mvp_location_ = glGetUniformLocation(default_program_, "u_mvpMatrix");
-  proj_location_ = glGetUniformLocation(default_program_, "u_projMatrix");
-  norm_location_ = glGetUniformLocation(default_program_, "u_normMatrix");
-  light_location_ = glGetUniformLocation(default_program_, "u_light");
 }
 
 OpenGLRenderer::~OpenGLRenderer() {
@@ -69,20 +66,19 @@ OpenGLRenderer::~OpenGLRenderer() {
 
 void OpenGLRenderer::rasterize(const Mesh& geometry, const Camera& camera, const glm::vec3& light) {
 
-  if (voxelized_) {
-    glUseProgram(voxel_program_);
-  } else {
-    glUseProgram(default_program_);
-  }
+  glUseProgram(default_program_);
 
-  //Send the MV, MVP, and Normal Matrices
-  glUniformMatrix4fv(mvp_location_, 1, GL_FALSE, glm::value_ptr(camera.mvp));
-  glUniformMatrix4fv(proj_location_, 1, GL_FALSE, glm::value_ptr(camera.projection));
+  GLuint mvp_location = glGetUniformLocation(default_program_, "u_mvpMatrix");
+  GLuint norm_location = glGetUniformLocation(default_program_, "u_normMatrix");
+  GLuint light_location = glGetUniformLocation(default_program_, "u_light");
+
+  //Send the MVP, and Normal Matrices
+  glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(camera.mvp));
   glm::mat3 norm_mat = glm::mat3(glm::transpose(glm::inverse(camera.model)));
-  glUniformMatrix3fv(norm_location_, 1, GL_FALSE, glm::value_ptr(norm_mat));
+  glUniformMatrix3fv(norm_location, 1, GL_FALSE, glm::value_ptr(norm_mat));
 
   //Send the light position
-  glUniform3fv(light_location_, 1, glm::value_ptr(light));
+  glUniform3fv(light_location, 1, glm::value_ptr(light));
 
   // Send the VBO and NB0
   glBindBuffer(GL_ARRAY_BUFFER, buffers_[0]);
@@ -95,22 +91,82 @@ void OpenGLRenderer::rasterize(const Mesh& geometry, const Camera& camera, const
   glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, NULL);
   glEnableVertexAttribArray(1);
 
-  if (voxelized_) {
-    glBindBuffer(GL_ARRAY_BUFFER, buffers_[2]);
-    glBufferData(GL_ARRAY_BUFFER, geometry.cbosize*sizeof(float), geometry.cbo, GL_DYNAMIC_DRAW);
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-    glEnableVertexAttribArray(2);
-  }
-
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glDrawArrays(GL_TRIANGLES, 0, geometry.vbosize);
 
 }
 
+void OpenGLRenderer::rasterizeVoxels(const VoxelGrid& geometry, const Camera& camera, const glm::vec3& light) {
+  //always use the voxel shaders to rasterize voxels with instancing
+  glUseProgram(voxel_program_);
+  GLuint mvp_location = glGetUniformLocation(voxel_program_, "u_mvpMatrix");
+  GLuint norm_location = glGetUniformLocation(voxel_program_, "u_normMatrix");
+  GLuint light_location = glGetUniformLocation(voxel_program_, "u_light");
+  GLuint scale_location = glGetUniformLocation(voxel_program_, "u_scale");
+
+  //Declare CUDA device pointers for it to use
+  glm::vec4* dptr_centers;
+  glm::vec4* dptr_colors;
+
+  //Setup position buffer
+  glBindBuffer(GL_ARRAY_BUFFER, buffers_[0]);
+  glBufferData(GL_ARRAY_BUFFER, 4*geometry.size*sizeof(float), NULL, GL_DYNAMIC_DRAW);
+  glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+  glEnableVertexAttribArray(0);
+
+  //Setup color buffer
+  glBindBuffer(GL_ARRAY_BUFFER, buffers_[1]);
+  glBufferData(GL_ARRAY_BUFFER, 4 * geometry.size*sizeof(float), NULL, GL_DYNAMIC_DRAW);
+  glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+  glEnableVertexAttribArray(1);
+
+  //Register position and normal buffers with CUDA
+  cudaGLRegisterBufferObject(buffers_[0]);
+  cudaGLRegisterBufferObject(buffers_[1]);
+
+  //Map buffers to CUDA
+  cudaGLMapBufferObject((void**)&dptr_centers, buffers_[0]);
+  cudaGLMapBufferObject((void**)&dptr_colors, buffers_[1]);
+
+  //Copy data to buffer
+  cudaMemcpy(dptr_centers, geometry.centers, 4*geometry.size*sizeof(float), cudaMemcpyDeviceToDevice);
+  cudaMemcpy(dptr_colors, geometry.colors, 4*geometry.size*sizeof(float), cudaMemcpyDeviceToDevice);
+
+  //Unmap buffers from CUDA
+  cudaGLUnmapBufferObject(buffers_[0]);
+  cudaGLUnmapBufferObject(buffers_[1]);
+
+  //Unregister position and normal buffers with CUDA
+  cudaGLUnregisterBufferObject(buffers_[0]);
+  cudaGLUnregisterBufferObject(buffers_[1]);
+
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_BUFFER, textures_[0]);
+  glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, buffers_[0]);
+  glActiveTexture(GL_TEXTURE1);
+  glBindTexture(GL_TEXTURE_BUFFER, textures_[1]);
+  glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, buffers_[1]);
+
+  //Send the MVP Matrix
+  glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(camera.mvp));
+  glm::mat3 norm_mat = glm::mat3(glm::transpose(glm::inverse(camera.model)));
+  glUniformMatrix3fv(norm_location, 1, GL_FALSE, glm::value_ptr(norm_mat));
+
+  //Send the light position
+  glUniform3fv(light_location, 1, glm::value_ptr(light));
+
+  //Send the scale
+  glUniform1f(scale_location, geometry.scale);
+
+  //Draw
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glDrawArraysInstanced(GL_TRIANGLES, 0, 36, geometry.size);
+}
+
 void OpenGLRenderer::renderPoints(const glm::vec3* positions, const Color256* colors, const int num, const Camera &camera) {
   //always use the point shaders to render points
   glUseProgram(points_program_);
-  mvp_location_ = glGetUniformLocation(points_program_, "u_mvpMatrix");
+  GLuint mvp_location = glGetUniformLocation(points_program_, "u_mvpMatrix");
 
   //Declare CUDA device pointers for it to use
   float3* dptr_pos;
@@ -148,7 +204,7 @@ void OpenGLRenderer::renderPoints(const glm::vec3* positions, const Color256* co
   cudaGLUnregisterBufferObject(buffers_[1]);
 
   //Send the MVP Matrix
-  glUniformMatrix4fv(mvp_location_, 1, GL_FALSE, glm::value_ptr(camera.mvp));
+  glUniformMatrix4fv(mvp_location, 1, GL_FALSE, glm::value_ptr(camera.mvp));
 
   //Draw
   glPointSize(1.0f);

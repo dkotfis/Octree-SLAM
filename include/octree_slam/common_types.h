@@ -38,6 +38,13 @@ struct Color256 {
   uint8_t b;
 };
 
+struct VoxelGrid {
+  glm::vec4* centers;
+  glm::vec4* colors;
+  float scale;
+  int size;
+};
+
 struct RawFrame {
   RawFrame(const int w, const int h);
   ~RawFrame();

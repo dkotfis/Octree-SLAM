@@ -73,16 +73,16 @@ void Scene::voxelizeMeshes(const bool octree) {
   }
 
   //For now, just voxelize the first mesh
-
   voxelization::setWorldSize(bbox_[0], bbox_[1], bbox_[2], bbox_[3], bbox_[4], bbox_[5]);
 
   Mesh m;
   if (!octree) {
-    voxelization::voxelizeToCubes(meshes_[0], &textures_[0], cube_, m);
+    //voxelization::voxelizeToCubes(meshes_[0], &textures_[0], cube_, m);
+    voxelization::voxelizeToGrid(meshes_[0], &textures_[0], voxel_grid_);
   } else {
     svo::voxelizeSVOCubes(meshes_[0], &textures_[0], cube_, m);
+    meshes_[0] = m;
   }
-  meshes_[0] = m;
 }
 
 Mesh Scene::objToMesh(obj* object) {

@@ -38,6 +38,9 @@ public:
   //Accessor method for textures
   const std::vector<bmp_texture>& textures() const { return textures_; };
 
+  //Accessor method for voxel grid
+  const VoxelGrid& voxel_grid() const { return voxel_grid_; };
+
 private:
 
   //Convenience utility for converting an obj to a Mesh struct
@@ -51,6 +54,9 @@ private:
 
   //The texture for each mesh in the scene
   std::vector<bmp_texture> textures_;
+
+  //A voxel grid representing the scene
+  VoxelGrid voxel_grid_;
 
   //A mesh for a single cube
   Mesh cube_;

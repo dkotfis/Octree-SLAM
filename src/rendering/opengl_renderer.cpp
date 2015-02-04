@@ -30,7 +30,7 @@ OpenGLRenderer::OpenGLRenderer(const std::string& path_prefix) {
 
   glActiveTexture(GL_TEXTURE0);
 
-  const char *attribLocations[] = { "v_position", "v_normal" };
+  const char **attribLocations = NULL;
   const char *attribLocations2[] = { "v_position", "v_normal", "v_color" };
   const char *attribLocations3[] = { "v_position", "v_color" };
 

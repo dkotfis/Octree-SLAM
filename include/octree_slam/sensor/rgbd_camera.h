@@ -73,7 +73,7 @@ private:
   //The relative weight of the RGBD cost contribution
   static const float W_RGBD;
 
-  //A threshold used for determining whether to continue iterations
+  //A threshold used for determining whether a motion is non-physical
   static const float MOVE_THRESH;
   static const float TURN_THRESH;
 

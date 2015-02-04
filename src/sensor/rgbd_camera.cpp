@@ -16,9 +16,9 @@ namespace octree_slam {
 
 namespace sensor {
 
-const int RGBDCamera::PYRAMID_ITERS[] = {4, 5, 10};
+const int RGBDCamera::PYRAMID_ITERS[] = {10, 5, 4};
 const float RGBDCamera::W_RGBD = 0.1;
-const float RGBDCamera::MOVE_THRESH = 0.1;
+const float RGBDCamera::MOVE_THRESH = 0.01;
 const float RGBDCamera::TURN_THRESH = 0.05;
 
 RGBDCamera::RGBDCamera(const int width, const int height, const glm::vec2 &focal_length) : 
@@ -73,7 +73,7 @@ void RGBDCamera::update(const RawFrame* this_frame) {
     }
 
     //Add ICP data
-    generateVertexMap(filtered_depth, current_icp_frame_[i]->vertex, current_icp_frame_[i]->width, current_icp_frame_[i]->height, focal_length_);
+    generateVertexMap(filtered_depth, current_icp_frame_[i]->vertex, current_icp_frame_[i]->width, current_icp_frame_[i]->height, focal_length_, make_int2(this_frame->width, this_frame->height));
     generateNormalMap(current_icp_frame_[i]->vertex, current_icp_frame_[i]->normal, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
 
     //Add RGBD data
@@ -82,11 +82,7 @@ void RGBDCamera::update(const RawFrame* this_frame) {
 
     //Downsample depth and color if not the last iteration
     if (i != (PYRAMID_DEPTH-1)) {
-      gaussianFilter(filtered_depth, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
-      gaussianFilter(temp_intensity, current_rgbd_frame_[i]->width, current_rgbd_frame_[i]->height);
-      cudaDeviceSynchronize();
-
-      subsample(filtered_depth, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
+      subsampleDepth(filtered_depth, current_icp_frame_[i]->width, current_icp_frame_[i]->height);
       subsample(temp_intensity, current_rgbd_frame_[i]->width, current_rgbd_frame_[i]->height);
       cudaDeviceSynchronize();
     }
@@ -101,28 +97,33 @@ void RGBDCamera::update(const RawFrame* this_frame) {
 
     //Loop through pyramids backwards (coarse first)
     for (int i = PYRAMID_DEPTH - 1; i >= 0; i--) {
+
       //Get a copy of the ICP frame for this pyramid level
       ICPFrame icp_f(current_icp_frame_[i]->width, current_icp_frame_[i]->height);
       cudaMemcpy(icp_f.vertex, current_icp_frame_[i]->vertex, icp_f.width*icp_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
       cudaMemcpy(icp_f.normal, current_icp_frame_[i]->normal, icp_f.width*icp_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
 
       //Get a copy of the RGBD frame for this pyramid level
-      RGBDFrame rgbd_f(current_rgbd_frame_[PYRAMID_DEPTH - 1 - i]->width, current_rgbd_frame_[PYRAMID_DEPTH - 1 - i]->height);
-      cudaMemcpy(rgbd_f.vertex, current_rgbd_frame_[PYRAMID_DEPTH - 1 - i]->vertex, rgbd_f.width*rgbd_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
-      cudaMemcpy(rgbd_f.intensity, current_rgbd_frame_[PYRAMID_DEPTH - 1 - i]->intensity, rgbd_f.width*rgbd_f.height*sizeof(float), cudaMemcpyDeviceToDevice);
+      RGBDFrame rgbd_f(current_rgbd_frame_[i]->width, current_rgbd_frame_[i]->height);
+      cudaMemcpy(rgbd_f.vertex, current_rgbd_frame_[i]->vertex, rgbd_f.width*rgbd_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+      cudaMemcpy(rgbd_f.intensity, current_rgbd_frame_[i]->intensity, rgbd_f.width*rgbd_f.height*sizeof(float), cudaMemcpyDeviceToDevice);
 
-      //Update this_frame vertex/normal maps for the next iteration
-      if (i != 0) {
-        transformVertexMap(icp_f.vertex, update_trans, icp_f.width*icp_f.height);
-        transformNormalMap(icp_f.normal, update_trans, icp_f.width*icp_f.height);
-      }
+      float x_last[6] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
       //Loop through iterations
       for (int j = 0; j < PYRAMID_ITERS[i]; j++) {
+
+        //Update this_frame vertex/normal maps for the next iteration
+        if (i < (PYRAMID_DEPTH - 1) || j > 0) {
+          transformVertexMap(icp_f.vertex, update_trans, icp_f.width*icp_f.height);
+          transformNormalMap(icp_f.normal, update_trans, icp_f.width*icp_f.height);
+          cudaDeviceSynchronize();
+        }
+
         //Get the Geometric ICP cost values
         float A1[6 * 6];
         float b1[6];
-        computeICPCost(last_icp_frame_[i], icp_f, A1, b1);
+        computeICPCost2(last_icp_frame_[i], icp_f, A1, b1);
 
         //Get the Photometric RGB-D cost values
         //float A2[6*6];
@@ -130,31 +131,36 @@ void RGBDCamera::update(const RawFrame* this_frame) {
         //compueRGBDCost(last_rgbd_frame_, rgbd_f, A2, b2);
 
         //Combine the two
-        for (size_t k = 0; k < 6; k++) {
-          for (size_t l = 0; l < 6; l++) {
+        //for (size_t k = 0; k < 6; k++) {
+          //for (size_t l = 0; l < 6; l++) {
             //A1[6 * k + l] += A2[6 * k + l];
-          }
+          //}
           //b1[k] += b2[k];
-        }
+        //}
 
         //Solve for the optimized camera transformation
         float x[6];
         solveCholesky(6, A1, b1, x);
 
-        //Update position/orientation of the camera
-        update_trans = glm::rotate(glm::mat4(1.0f), x[2] * 180.0f / 3.14159f, glm::vec3(0.0f, 0.0f, 1.0f)) * glm::rotate(glm::mat4(1.0f), x[1] * 180.0f / 3.14159f, glm::vec3(0.0f, 1.0f, 0.0f)) 
-          * glm::rotate(glm::mat4(1.0f), x[0] * 180.0f / 3.14159f, glm::vec3(1.0f, 0.0f, 0.0f)) * glm::translate(glm::mat4(1.0f), glm::vec3(x[3], x[4], x[5])) * update_trans;
-
-        //Determine whether it is close enough
-        if (glm::length(glm::vec3(x[3], x[4], x[5])) < MOVE_THRESH && glm::length(glm::vec3(x[0], x[1], x[2])) < TURN_THRESH) {
+        //Check for NaN/divergence
+        if (isnan(x[0]) || isnan(x[1]) || isnan(x[2]) || isnan(x[3]) || isnan(x[4]) || isnan(x[5])) {
+          printf("Camera tracking is lost.\n");
           break;
         }
-        //TODO: Check to see if it got worse than the last iteration
+
+        //Update position/orientation of the camera
+        update_trans = 
+            glm::rotate(glm::mat4(1.0f), asin(-x[2]) * 180.0f / 3.14159f, glm::vec3(0.0f, 0.0f, 1.0f)) 
+          * glm::rotate(glm::mat4(1.0f), asin(-x[1]) * 180.0f / 3.14159f, glm::vec3(0.0f, 1.0f, 0.0f))
+          * glm::rotate(glm::mat4(1.0f), asin(-x[0]) * 180.0f / 3.14159f, glm::vec3(1.0f, 0.0f, 0.0f)) 
+          * glm::translate(glm::mat4(1.0f), glm::vec3(x[3], x[4], x[5]))
+          * update_trans;
+        
       }
     }
     //Update the global transform with the result
-    position_ = glm::vec3(update_trans * glm::vec4(position_, 1.0f));
-    orientation_ = glm::mat3(update_trans * glm::mat4(orientation_));
+    position_ = glm::vec3(glm::vec4(position_, 1.0f) * update_trans);
+    orientation_ = glm::mat3(glm::mat4(orientation_) * update_trans);
   }
 
   if (pass_ < 2) {

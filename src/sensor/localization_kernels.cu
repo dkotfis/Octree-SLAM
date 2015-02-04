@@ -14,41 +14,23 @@ namespace octree_slam {
 
 namespace sensor {
 
-__device__ const float DIST_THRESH = 0.10f; //Use 10 cm distance threshold for correspondences
-__device__ const float NORM_THRESH = 0.7f; //Use 30% orientation threshold for correspondences
+__device__ const float DIST_THRESH = 0.1f; //Use 10 cm distance threshold for correspondences
+__device__ const float NORM_THRESH = 0.87f; //Use 30 degree orientation threshold
 
-//Define structures to be used for Mat6x6 and Vec6 for thrust summation
-struct Mat6x6 {
-  float values[36];
-  __host__ __device__ Mat6x6() {};
-  __host__ __device__ Mat6x6(const int val) {
-    for (int i = 0; i < 36; i++) {
+//Define structure to be used for combined Mat6x6 and Vec6 in thrust summation
+struct Mat6x7 {
+  float values[42];
+  __host__ __device__ Mat6x7() {};
+  __host__ __device__ Mat6x7(const int val) {
+    for (int i = 0; i < 42; i++) {
       values[i] = val;
     }
   };
 };
 
-__host__ __device__ inline Mat6x6 operator+(const Mat6x6& lhs, const Mat6x6& rhs) {
-  Mat6x6 result;
-  for (int i = 0; i < 36; i++) {
-    result.values[i] = lhs.values[i] + rhs.values[i];
-  }
-  return result;
-}
-
-struct Vec6 {
-  float values[6];
-  __host__ __device__ Vec6() {};
-  __host__ __device__ Vec6(const int val) {
-    for (int i = 0; i < 6; i++) {
-      values[i] = val;
-    }
-  };
-};
-
-__host__ __device__ inline Vec6 operator+(const Vec6& lhs, const Vec6& rhs) {
-  Vec6 result;
-  for (int i = 0; i < 6; i++) {
+__host__ __device__ inline Mat6x7 operator+(const Mat6x7& lhs, const Mat6x7& rhs) {
+  Mat6x7 result;
+  for (int i = 0; i < 42; i++) {
     result.values[i] = lhs.values[i] + rhs.values[i];
   }
   return result;
@@ -116,100 +98,132 @@ __global__ void computeICPCorrespondences(const glm::vec3* last_frame_vertex, co
 
 }
 
-__global__ void computeICPCostsKernel(const glm::vec3* last_frame_normal, const glm::vec3* last_frame_vertex, const glm::vec3* this_frame_vertex, const int num_points, Mat6x6* As, Vec6* bs) {
+__global__ void computeICPCostsKernel(const glm::vec3* last_frame_normal, const glm::vec3* last_frame_vertex, const glm::vec3* this_frame_vertex, const int num_points, const int load_size, Mat6x7* As) {
   int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
   //Don't do anything if the index is out of bounds
-  if (idx >= num_points) {
+  if (idx*load_size >= num_points) {
     return;
   }
 
-  //Get the vertex and normal values
-  glm::vec3 v2 = this_frame_vertex[idx];
-  glm::vec3 v1 = last_frame_vertex[idx];
-  glm::vec3 n = last_frame_normal[idx];
-
-  //Construct A_T
-  float G_T[18] = { 0.0f, -v2.z, v2.y, v2.z, 0.0f, -v2.x, -v2.y, v2.x, 0.0f,
-    1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
-  float A_T[6];
-  for (int i = 0; i < 6; i++) {
-    A_T[i] = G_T[3 * i] * n.x + G_T[3*i + 1] * n.y + G_T[3*i + 2] * n.z;
+  //Determine whether the full load is in the bounds
+  int bound = load_size;
+  if ((idx + 1)*load_size - num_points > 0) {
+    bound -= (idx + 1)*load_size - num_points;
   }
 
-  //Construct b
-  float b = glm::dot(n, v1 - v2);
-
-  //Compute outputs
-  for (int i = 0; i < 6; i++) {
+  //Init outputs
+  for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 6; j++) {
-      As[idx].values[6*i + j] = A_T[i] * A_T[j];
+      As[idx].values[6 * i + j] = 0.0f;
     }
-    bs[idx].values[i] = b*A_T[i];
+  }
+
+  //Loop through the load
+  for (int k = 0; k < bound; k++) {
+
+    //Get the vertex and normal values
+    glm::vec3 v2 = this_frame_vertex[load_size*idx+k];
+    glm::vec3 v1 = last_frame_vertex[load_size*idx+k];
+    glm::vec3 n = last_frame_normal[load_size*idx+k];
+
+    //Construct A_T
+    float G_T[18] = { 0.0f, -v2.x, -v2.y, -v2.z, 0.0f, v2.x, v2.y, v2.z, 0.0f,
+      1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+    float A_T[6];
+    for (int i = 0; i < 6; i++) {
+      A_T[i] = G_T[3 * i] * n.x + G_T[3*i + 1] * n.y + G_T[3*i + 2] * n.z;
+    }
+
+    //Construct b
+    float b = glm::dot(n, v1 - v2);
+
+    //Compute outputs
+    for (int i = 0; i < 6; i++) {
+      for (int j = 0; j < 6; j++) {
+        As[idx].values[6*i + j] += A_T[i] * A_T[j];
+      }
+    }
+    for (int i = 0; i < 6; i++) {
+      As[idx].values[36 + i] += b*A_T[i];
+    }
+
   }
 }
 
 __global__ void computeICPCostsUncorrespondedKernel(const glm::vec3* last_frame_normal, const glm::vec3* last_frame_vertex, const glm::vec3* this_frame_normal, 
-  const glm::vec3* this_frame_vertex, const int num_points, Mat6x6* As, Vec6* bs) {
+  const glm::vec3* this_frame_vertex, const int num_points, const int load_size, Mat6x7* As) {
 
   int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
   //Don't do anything if the index is out of bounds
-  if (idx >= num_points) {
+  if (idx*load_size >= num_points) {
     return;
+  }
+
+  //Determine whether the full load is in the bounds
+  int bound = load_size;
+  if ((idx + 1)*load_size - num_points > 0) {
+    bound -= (idx + 1)*load_size - num_points;
   }
 
   //Init outputs
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 7; i++) {
     for (int j = 0; j < 6; j++) {
       As[idx].values[6 * i + j] = 0.0f;
     }
-    bs[idx].values[i] = 0.0f;
   }
 
-  //Get the vertex and normal values
-  glm::vec3 v2 = this_frame_vertex[idx];
-  glm::vec3 n2 = this_frame_normal[idx];
-  glm::vec3 v1 = last_frame_vertex[idx];
-  glm::vec3 n1 = last_frame_normal[idx];
+  //Loop through the load
+  for (int k = 0; k < bound; k++) {
 
-  //Check whether points are any good
-  if (!isfinite(v2.x) || !isfinite(v2.y) || !isfinite(v2.z)
-    || !isfinite(v1.x) || !isfinite(v1.y) || !isfinite(v1.z)) {
-    return;
-  }
-  if (!isfinite(n2.x) || !isfinite(n2.y) || !isfinite(n2.z)
-    || !isfinite(n1.x) || !isfinite(n1.y) || !isfinite(n1.z)) {
-    return;
-  }
+    //Get the vertex and normal values
+    glm::vec3 v2 = this_frame_vertex[load_size*idx+k];
+    glm::vec3 n2 = this_frame_normal[load_size*idx+k];
+    glm::vec3 v1 = last_frame_vertex[load_size*idx+k];
+    glm::vec3 n1 = last_frame_normal[load_size*idx+k];
 
-  //Check position difference
-  if (glm::length(v2 - v1) > DIST_THRESH) {
-    return;
-  }
-
-  //Check normal difference
-  if (glm::dot(n2, n1) < NORM_THRESH) {
-    return;
-  }
-
-  //Construct A_T
-  float G_T[18] = { 0.0f, -v2.z, v2.y, v2.z, 0.0f, -v2.x, -v2.y, v2.x, 0.0f,
-    1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
-  float A_T[6];
-  for (int i = 0; i < 6; i++) {
-    A_T[i] = G_T[3 * i] * n1.x + G_T[3 * i + 1] * n1.y + G_T[3 * i + 2] * n1.z;
-  }
-
-  //Construct b
-  float b = glm::dot(n1, v1 - v2);
-
-  //Compute outputs
-  for (int i = 0; i < 6; i++) {
-    for (int j = 0; j < 6; j++) {
-      As[idx].values[6 * i + j] = A_T[i] * A_T[j];
+    //Check whether points are any good
+    if (!isfinite(v2.x) || !isfinite(v2.y) || !isfinite(v2.z)
+      || !isfinite(v1.x) || !isfinite(v1.y) || !isfinite(v1.z)) {
+      continue;
     }
-    bs[idx].values[i] = b*A_T[i];
+    if (!isfinite(n2.x) || !isfinite(n2.y) || !isfinite(n2.z)
+      || !isfinite(n1.x) || !isfinite(n1.y) || !isfinite(n1.z)) {
+      continue;
+    }
+
+    //Check position difference
+    if (glm::length(v2 - v1) > DIST_THRESH) {
+      continue;
+    }
+
+    //Check normal difference
+    if (glm::dot(n2, n1) < NORM_THRESH) {
+      continue;
+    }
+
+    //Construct A_T
+    float G_T[18] = { 0.0f, -v2.x, -v2.y, -v2.z, 0.0f, v2.x, v2.y, v2.z, 0.0f,
+      1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+    float A_T[6];
+    for (int i = 0; i < 6; i++) {
+      A_T[i] = G_T[3 * i] * n1.x + G_T[3 * i + 1] * n1.y + G_T[3 * i + 2] * n1.z;
+    }
+
+    //Construct b
+    float b = glm::dot(n1, v1 - v2);
+
+    //Compute outputs
+    for (int i = 0; i < 6; i++) {
+      for (int j = 0; j < 6; j++) {
+        As[idx].values[6 * i + j] += A_T[i] * A_T[j];
+      }
+    }
+    for (int i = 0; i < 6; i++) {
+      As[idx].values[36+i] += b*A_T[i];
+    }
+
   }
 }
 
@@ -223,7 +237,7 @@ extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_
   cudaMalloc((void**)&d_stencil, num_correspondences * sizeof(bool));
   cudaMalloc((void**)&d_num_corr, sizeof(int));
   cudaMemcpy(d_num_corr, &num_correspondences, sizeof(int), cudaMemcpyHostToDevice); //Initialize to the total points. Assume that most points will be valid
-  computeICPCorrespondences<<<num_correspondences / 256 + 1, 256>>>(last_frame->vertex, last_frame->normal, this_frame.vertex, this_frame.normal, 
+  computeICPCorrespondences<<<num_correspondences /256 + 1, 256>>>(last_frame->vertex, last_frame->normal, this_frame.vertex, this_frame.normal, 
     num_correspondences, d_stencil, d_num_corr);
   cudaDeviceSynchronize();
 
@@ -262,11 +276,10 @@ extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_
   cudaFree(d_stencil);
 
   //Compute cost terms
-  Mat6x6* d_A;
-  Vec6* d_b;
-  cudaMalloc((void**) &d_A, num_correspondences * sizeof(Mat6x6));
-  cudaMalloc((void**) &d_b, num_correspondences * sizeof(Vec6));
-  computeICPCostsKernel<<<num_correspondences / 256 + 1, 256>>>(last_frame_reduced_normal, last_frame_reduced_vertex, this_frame_reduced_vertex, num_correspondences, d_A, d_b);
+  int load_size = 10;
+  Mat6x7* d_A; //Note, the 6x6 A and 6x1 b are combined into a single array so they can be reduced together with thrust later
+  cudaMalloc((void**) &d_A, (num_correspondences/load_size) * sizeof(Mat6x7));
+  computeICPCostsKernel<<<(num_correspondences / 16 / load_size) + 1, 16>>>(last_frame_reduced_normal, last_frame_reduced_vertex, this_frame_reduced_vertex, num_correspondences, load_size, d_A);
   cudaDeviceSynchronize();
 
   //Free up device memory
@@ -275,18 +288,15 @@ extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_
   cudaFree(this_frame_reduced_vertex);
 
   //Sum terms (reduce) with thrust
-  thrust::device_ptr<Mat6x6> thrust_A = thrust::device_pointer_cast<Mat6x6>(d_A);
-  Mat6x6 matA = thrust::reduce(thrust_A, thrust_A + num_correspondences);
-  thrust::device_ptr<Vec6> thrust_b = thrust::device_pointer_cast<Vec6>(d_b);
-  Vec6 vecb = thrust::reduce(thrust_b, thrust_b + num_correspondences);
+  thrust::device_ptr<Mat6x7> thrust_A = thrust::device_pointer_cast<Mat6x7>(d_A);
+  Mat6x7 matA = thrust::reduce(thrust_A, thrust_A + (num_correspondences/load_size));
 
   //Free up device memory
   cudaFree(d_A);
-  cudaFree(d_b);
 
   //Copy result to output
   memcpy(A, matA.values, 36 * sizeof(float));
-  memcpy(b, vecb.values, 6 * sizeof(float));
+  memcpy(b, matA.values + 36, 6 * sizeof(float));
 }
 
 extern "C" void computeICPCost2(const ICPFrame* last_frame, const ICPFrame &this_frame, float* A, float* b) {
@@ -296,26 +306,22 @@ extern "C" void computeICPCost2(const ICPFrame* last_frame, const ICPFrame &this
   int num_correspondences = this_frame.width * this_frame.height;
 
   //Compute cost terms
-  Mat6x6* d_A;
-  Vec6* d_b;
-  cudaMalloc((void**)&d_A, num_correspondences * sizeof(Mat6x6));
-  cudaMalloc((void**)&d_b, num_correspondences * sizeof(Vec6));
-  computeICPCostsUncorrespondedKernel << <num_correspondences / 256 + 1, 256 >> >(last_frame->normal, last_frame->vertex, this_frame.normal, this_frame.vertex, num_correspondences, d_A, d_b);
+  int load_size = 20*this_frame.width/640;
+  Mat6x7* d_A; //Note, the 6x6 A and 6x1 b are combined into a single array so they can be reduced together with thrust later
+  cudaMalloc((void**)&d_A, (num_correspondences/load_size) * sizeof(Mat6x7));
+  computeICPCostsUncorrespondedKernel << <(num_correspondences / 16 / load_size) + 1, 16 >> >(last_frame->normal, last_frame->vertex, this_frame.normal, this_frame.vertex, num_correspondences, load_size, d_A);
   cudaDeviceSynchronize();
 
   //Sum terms (reduce) with thrust
-  thrust::device_ptr<Mat6x6> thrust_A = thrust::device_pointer_cast<Mat6x6>(d_A);
-  Mat6x6 matA = thrust::reduce(thrust_A, thrust_A + num_correspondences);
-  thrust::device_ptr<Vec6> thrust_b = thrust::device_pointer_cast<Vec6>(d_b);
-  Vec6 vecb = thrust::reduce(thrust_b, thrust_b + num_correspondences);
+  thrust::device_ptr<Mat6x7> thrust_A = thrust::device_pointer_cast<Mat6x7>(d_A);
+  Mat6x7 matA = thrust::reduce(thrust_A, thrust_A + (num_correspondences/load_size));
 
   //Free up device memory
   cudaFree(d_A);
-  cudaFree(d_b);
 
   //Copy result to output
   memcpy(A, matA.values, 36 * sizeof(float));
-  memcpy(b, vecb.values, 6 * sizeof(float));
+  memcpy(b, matA.values + 36 , 6 * sizeof(float));
 }
 
 extern "C" void computeRGBDCost(const RGBDFrame* last_frame, const RGBDFrame& this_frame, float* A, float* b) {

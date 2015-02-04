@@ -18,21 +18,23 @@ namespace octree_slam {
 namespace sensor {
 
 //Generates a vertex map from a depth image
-extern "C" void generateVertexMap(const uint16_t* depth_pixels, glm::vec3* vertex_map, const int width, const int height, const glm::vec2 focal_length);
+extern "C" void generateVertexMap(const uint16_t* depth_pixels, glm::vec3* vertex_map, const int width, const int height, const glm::vec2 focal_length, const int2 img_size);
 
 //Generates a normal map from a vertex map
 extern "C" void generateNormalMap(const glm::vec3* vertex_map, glm::vec3* normal_map, const int width, const int height);
 
+//TODO: Should both maps be generated together in one kernel?
+
 //Applies a bilateral filter to a depth image
 extern "C" void bilateralFilter(const uint16_t* depth_in, uint16_t* filtered_out, const int width, const int height);
 
-//Applies a gaussian filter (in place)
-template <class T>
-void gaussianFilter(T* data, const int width, const int height);
-
-//Subsamples (in place) to construct a pyramid
+//Subsamples (in place)
 template <class T>
 void subsample(T* data, const int width, const int height);
+
+//Subsamples depth (in place) to construct a pyramid by using a bilateral filter averaging nearby values
+template <class T>
+void subsampleDepth(T* data, const int width, const int height);
 
 //Computes an intensity image from a color input
 extern "C" void colorToIntensity(const Color256* color_in, float* intensity_out, const int size);

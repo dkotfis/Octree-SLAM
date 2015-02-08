@@ -12,7 +12,7 @@ namespace sensor {
 #define PI 3.14159
 
 int BILATERAL_KERNEL_SIZE = 7;
-float BILATERAL_SIGMA_DEPTH = 0.04f;
+float BILATERAL_SIGMA_DEPTH = 40.0f; //in mm
 float BILATERAL_SIGMA_SPATIAL = 4.5f;
 
 float3 INTENSITY_RATIO = { 0.299f, 0.587f, 0.114f }; //These are taken from Kintinuous
@@ -37,8 +37,8 @@ __global__ void generateVertexMapKernel(const uint16_t* depth_pixels, glm::vec3*
   const float milli = 0.001f;
 
   //Compute the point coordinates
-  vertex_map[idx].x = ((img_size.x/width)*x - width/2) * (float) depth / focal_length.x * milli;
-  vertex_map[idx].y = (height/2 - (img_size.y/height)*y) * (float) depth / focal_length.y * milli;
+  vertex_map[idx].x = ((img_size.x/width)*x - img_size.x/2) * (float) depth / focal_length.x * milli;
+  vertex_map[idx].y = (img_size.y/2 - (img_size.y/height)*y) * (float) depth / focal_length.y * milli;
   vertex_map[idx].z = depth*milli;
 
 }
@@ -221,7 +221,7 @@ void subsampleDepth(T* data, const int width, const int height) {
   T* data_new;
   cudaMalloc((void**)&data_new, width*height*sizeof(T)/4);
 
-  subsampleDepthKernel<<<width*height/1024 + 1, 256>>>(data, data_new, width/2, height/2, BILATERAL_SIGMA_DEPTH*3000.0f);
+  subsampleDepthKernel<<<width*height/1024 + 1, 256>>>(data, data_new, width/2, height/2, BILATERAL_SIGMA_DEPTH*3.0f);
   cudaDeviceSynchronize();
 
   //Copy into the input

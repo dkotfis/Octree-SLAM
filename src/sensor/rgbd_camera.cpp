@@ -57,7 +57,6 @@ void RGBDCamera::update(const RawFrame* this_frame) {
   uint16_t* filtered_depth;
   cudaMalloc((void**)&filtered_depth, this_frame->width*this_frame->height*sizeof(uint16_t));
   bilateralFilter(this_frame->depth, filtered_depth, this_frame->width, this_frame->height);
-  //cudaMemcpy(filtered_depth, this_frame->depth, this_frame->width*this_frame->height*sizeof(uint16_t), cudaMemcpyDeviceToDevice);
 
   //Convert the input color data to intensity
   float* temp_intensity;
@@ -104,21 +103,19 @@ void RGBDCamera::update(const RawFrame* this_frame) {
       cudaMemcpy(icp_f.normal, current_icp_frame_[i]->normal, icp_f.width*icp_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
 
       //Get a copy of the RGBD frame for this pyramid level
-      RGBDFrame rgbd_f(current_rgbd_frame_[i]->width, current_rgbd_frame_[i]->height);
-      cudaMemcpy(rgbd_f.vertex, current_rgbd_frame_[i]->vertex, rgbd_f.width*rgbd_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
-      cudaMemcpy(rgbd_f.intensity, current_rgbd_frame_[i]->intensity, rgbd_f.width*rgbd_f.height*sizeof(float), cudaMemcpyDeviceToDevice);
+      //RGBDFrame rgbd_f(current_rgbd_frame_[i]->width, current_rgbd_frame_[i]->height);
+      //cudaMemcpy(rgbd_f.vertex, current_rgbd_frame_[i]->vertex, rgbd_f.width*rgbd_f.height*sizeof(glm::vec3), cudaMemcpyDeviceToDevice);
+      //cudaMemcpy(rgbd_f.intensity, current_rgbd_frame_[i]->intensity, rgbd_f.width*rgbd_f.height*sizeof(float), cudaMemcpyDeviceToDevice);
 
-      float x_last[6] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+      //Apply the most recent update to the points/normals
+      if (i < (PYRAMID_DEPTH-1)) {
+        transformVertexMap(icp_f.vertex, update_trans, icp_f.width*icp_f.height);
+        transformNormalMap(icp_f.normal, update_trans, icp_f.width*icp_f.height);
+        cudaDeviceSynchronize();
+      }
 
       //Loop through iterations
       for (int j = 0; j < PYRAMID_ITERS[i]; j++) {
-
-        //Update this_frame vertex/normal maps for the next iteration
-        if (i < (PYRAMID_DEPTH - 1) || j > 0) {
-          transformVertexMap(icp_f.vertex, update_trans, icp_f.width*icp_f.height);
-          transformNormalMap(icp_f.normal, update_trans, icp_f.width*icp_f.height);
-          cudaDeviceSynchronize();
-        }
 
         //Get the Geometric ICP cost values
         float A1[6 * 6];
@@ -149,13 +146,21 @@ void RGBDCamera::update(const RawFrame* this_frame) {
         }
 
         //Update position/orientation of the camera
-        update_trans = 
-            glm::rotate(glm::mat4(1.0f), asin(-x[2]) * 180.0f / 3.14159f, glm::vec3(0.0f, 0.0f, 1.0f)) 
-          * glm::rotate(glm::mat4(1.0f), asin(-x[1]) * 180.0f / 3.14159f, glm::vec3(0.0f, 1.0f, 0.0f))
-          * glm::rotate(glm::mat4(1.0f), asin(-x[0]) * 180.0f / 3.14159f, glm::vec3(1.0f, 0.0f, 0.0f)) 
-          * glm::translate(glm::mat4(1.0f), glm::vec3(x[3], x[4], x[5]))
-          * update_trans;
+        glm::mat4 this_trans = 
+            glm::rotate(glm::mat4(1.0f), -x[2] * 180.0f / 3.14159f, glm::vec3(0.0f, 0.0f, 1.0f)) 
+          * glm::rotate(glm::mat4(1.0f), -x[1] * 180.0f / 3.14159f, glm::vec3(0.0f, 1.0f, 0.0f))
+          * glm::rotate(glm::mat4(1.0f), -x[0] * 180.0f / 3.14159f, glm::vec3(1.0f, 0.0f, 0.0f)) 
+          * glm::translate(glm::mat4(1.0f), glm::vec3(x[3], x[4], x[5]));
+
+        update_trans = this_trans * update_trans;
         
+        //Apply the update to the points/normals
+        if (j < (PYRAMID_ITERS[i] - 1)) {
+          transformVertexMap(icp_f.vertex, this_trans, icp_f.width*icp_f.height);
+          transformNormalMap(icp_f.normal, this_trans, icp_f.width*icp_f.height);
+          cudaDeviceSynchronize();
+        }
+
       }
     }
     //Update the global transform with the result

@@ -185,7 +185,8 @@ __global__ void computeICPCostsUncorrespondedKernel(const glm::vec3* last_frame_
 
     //Check whether points are any good
     if (!isfinite(v2.x) || !isfinite(v2.y) || !isfinite(v2.z)
-      || !isfinite(v1.x) || !isfinite(v1.y) || !isfinite(v1.z)) {
+      || !isfinite(v1.x) || !isfinite(v1.y) || !isfinite(v1.z)
+      || (v1.z < 0.1f) || (v2.z < 0.1f) || (v1.z > 10.0f) || (v2.z > 10.0f)) {
       continue;
     }
     if (!isfinite(n2.x) || !isfinite(n2.y) || !isfinite(n2.z)

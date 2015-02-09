@@ -42,25 +42,10 @@ void mainLoop() {
       //Draw the current camera color frame to the window
       cuda_renderer_->pixelPassthrough(camera_device_->rawFrame()->color);
     } else if (DRAW_POINT_CLOUD) {
-      /*
-      uint16_t* filtered_depth;
-      cudaMalloc((void**)&filtered_depth, camera_device_->frameWidth()*camera_device_->frameHeight()*sizeof(uint16_t));
-      octree_slam::sensor::bilateralFilter(camera_device_->rawFrame()->depth, filtered_depth, camera_device_->frameWidth(), camera_device_->frameHeight());
-      cudaDeviceSynchronize();
-
-      octree_slam::sensor::subsampleDepth(filtered_depth, camera_device_->frameWidth(), camera_device_->frameWidth());
-      cudaDeviceSynchronize();
-
-      octree_slam::sensor::subsampleDepth(filtered_depth, camera_device_->frameWidth(), camera_device_->frameWidth());
-      cudaDeviceSynchronize();
-      */
-
-      octree_slam::sensor::generateVertexMap(/*filtered_depth*/camera_device_->rawFrame()->depth, points_, camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength(), make_int2(camera_device_->frameWidth(), camera_device_->frameHeight()));
+      octree_slam::sensor::generateVertexMap(camera_device_->rawFrame()->depth, points_, camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength(), make_int2(camera_device_->frameWidth(), camera_device_->frameHeight()));
       octree_slam::sensor::transformVertexMap(points_, glm::mat4(camera_estimation_->orientation()) * glm::translate(glm::mat4(1.0f), camera_estimation_->position()), camera_device_->frameWidth()*camera_device_->frameHeight());
       cudaDeviceSynchronize();
       gl_renderer_->renderPoints(points_, camera_device_->rawFrame()->color, camera_device_->frameWidth()*camera_device_->frameHeight(), camera_->camera());
-
-      //cudaFree(filtered_depth);
     } else if (VOXELIZE) {
       gl_renderer_->rasterizeVoxels(scene_->voxel_grid(), camera_->camera(), lightpos_);
     } else {

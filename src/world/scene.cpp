@@ -5,7 +5,6 @@
 #include <octree_slam/world/scene.h>
 #include <octree_slam/world/voxelization/voxelization.h>
 #include <octree_slam/world/octree.h>
-#include <octree_slam/world/svo/svo.h>
 
 namespace octree_slam {
 
@@ -75,13 +74,12 @@ void Scene::voxelizeMeshes(const bool octree) {
   //For now, just voxelize the first mesh
   voxelization::setWorldSize(bbox_[0], bbox_[1], bbox_[2], bbox_[3], bbox_[4], bbox_[5]);
 
-  Mesh m;
   if (!octree) {
-    //voxelization::voxelizeToCubes(meshes_[0], &textures_[0], cube_, m);
     voxelization::voxelizeToGrid(meshes_[0], &textures_[0], voxel_grid_);
   } else {
-    svo::voxelizeSVOCubes(meshes_[0], &textures_[0], cube_, m);
-    meshes_[0] = m;
+    VoxelGrid grid;
+    voxelization::voxelizeToGrid(meshes_[0], &textures_[0], grid);
+    tree_->addVoxelGrid(grid);
   }
 }
 

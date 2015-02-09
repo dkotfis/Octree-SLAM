@@ -18,8 +18,6 @@ namespace sensor {
 
 const int RGBDCamera::PYRAMID_ITERS[] = {10, 5, 4};
 const float RGBDCamera::W_RGBD = 0.1;
-const float RGBDCamera::MOVE_THRESH = 0.01;
-const float RGBDCamera::TURN_THRESH = 0.05;
 
 RGBDCamera::RGBDCamera(const int width, const int height, const glm::vec2 &focal_length) : 
   width_(width), height_(height), focal_length_(focal_length), pass_(0) {
@@ -53,6 +51,13 @@ const Camera RGBDCamera::camera() const {
 }
 
 void RGBDCamera::update(const RawFrame* this_frame) {
+  //Check the timestamp, and skip if we have already seen this frame
+  if (this_frame->timestamp <= latest_stamp_) {
+    return;
+  } else {
+    latest_stamp_ = this_frame->timestamp;
+  }
+
   //Apply bilateral filter to incoming depth
   uint16_t* filtered_depth;
   cudaMalloc((void**)&filtered_depth, this_frame->width*this_frame->height*sizeof(uint16_t));
@@ -188,7 +193,7 @@ void RGBDCamera::update(const RawFrame* this_frame) {
 //This is based on: http://www.sci.utah.edu/~wallstedt/LU.htm
 void RGBDCamera::solveCholesky(const int dimension, const float* A, const float* b, float* x) const {
   //Compute LU decomposition
-  std::vector<float> LU(dimension*dimension);
+  std::vector<float> LU(dimension*dimension, 0.0f);
   for (int k = 0; k < dimension; ++k){
     double sum = 0.;
     for (int p = 0; p < k; ++p)
@@ -202,7 +207,7 @@ void RGBDCamera::solveCholesky(const int dimension, const float* A, const float*
   }
 
   //Solve linear equation
-  std::vector<float> y(dimension);
+  std::vector<float> y(dimension, 0.0f);
   for (int i = 0; i < dimension; ++i){
     double sum = 0.;
     for (int k = 0; k<i; ++k)sum += LU[i*dimension + k] * y[k];

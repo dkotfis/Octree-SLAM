@@ -15,3 +15,11 @@ RawFrame::~RawFrame() {
   cudaFree(color);
   cudaFree(depth);
 }
+
+VoxelGrid::~VoxelGrid() {
+  if (size > 0) {
+    cudaFree(centers);
+    cudaFree(colors);
+  }
+}
+

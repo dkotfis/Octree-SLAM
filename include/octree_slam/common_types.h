@@ -39,6 +39,7 @@ struct Color256 {
 };
 
 struct VoxelGrid {
+  ~VoxelGrid();
   glm::vec4* centers;
   glm::vec4* colors;
   float scale;
@@ -52,6 +53,7 @@ struct RawFrame {
   uint16_t* depth;
   int height;
   int width;
+  long long timestamp;
 };
 
 #endif //SCENE_STRUCTS_H_

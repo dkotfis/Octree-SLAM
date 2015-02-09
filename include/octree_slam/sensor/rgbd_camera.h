@@ -70,12 +70,11 @@ private:
   //The number of updates that have been run (caps at 2)
   int pass_;
 
+  //The latest frame timestamp that has been processed
+  long long latest_stamp_;
+
   //The relative weight of the RGBD cost contribution
   static const float W_RGBD;
-
-  //A threshold used for determining whether a motion is non-physical
-  static const float MOVE_THRESH;
-  static const float TURN_THRESH;
 
 }; //class RGBDCamera
 

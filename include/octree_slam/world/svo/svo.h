@@ -21,6 +21,11 @@ extern "C" void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, 
 
 extern"C" void voxelizeSVOCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out);
 
+inline __host__ __device__ int oppositeNode(const int node) {
+  //Returns the bitwise complement
+  return ~node;
+}
+
 } // namespace svo
 
 } // namespace octree_slam

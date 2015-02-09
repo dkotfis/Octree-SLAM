@@ -143,6 +143,9 @@ long long OpenNIDevice::readFrame() {
   openni::RGB888Pixel* pixel_color = (openni::RGB888Pixel*) frame.getData();
   cudaMemcpy(raw_frame_->color, pixel_color, raw_frame_->width*raw_frame_->height*sizeof(openni::RGB888Pixel), cudaMemcpyHostToDevice);
 
+  //Timestamp the data
+  raw_frame_->timestamp = timestamp_;
+
   return timestamp_;
 }
 

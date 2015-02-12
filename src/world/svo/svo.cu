@@ -7,7 +7,6 @@
 
 // Octree-SLAM Dependencies
 #include <octree_slam/timing_utils.h>
-#include <octree_slam/world/voxelization/voxelization_utils.h>
 #include <octree_slam/world/svo/svo.h>
 
 namespace octree_slam {
@@ -17,14 +16,13 @@ namespace svo {
 texture<float, 3> brick_tex;
 surface<void, 3> brick_surf;
 
-__global__ void flagNodes(int* voxels, int numVoxels, int* octree, int M, int T, float3 bbox0, float3 t_d, float3 p_d, int tree_depth) {
+__global__ void flagNodes(const glm::vec4* voxels, int numVoxels, int* octree, float edge_length, int tree_depth) {
 
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   //Don't do anything if its out of bounds
   if (index < numVoxels) {
-    float3 center = voxelization::getCenterFromIndex(voxels[index], M, T, bbox0, t_d, p_d);
-    float edge_length = abs(bbox0.x);
+    glm::vec4 center = voxels[index];
     float3 center_depth = make_float3(0.0f, 0.0f, 0.0f);
     int node_idx = 0;
     int this_node;
@@ -78,14 +76,13 @@ __global__ void splitNodes(int* octree, int* numNodes, int poolSize, int startNo
 
 }
 
-__global__ void fillNodes(int* voxels, int numVoxels, int* values, int* octree, int M, int T, float3 bbox0, float3 t_d, float3 p_d) {
+__global__ void fillNodes(const glm::vec4* voxels, int numVoxels, int* values, int* octree, float edge_length) {
 
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   //Don't do anything if its out of bounds
   if (index < numVoxels) {
-    float3 center = voxelization::getCenterFromIndex(voxels[index], M, T, bbox0, t_d, p_d);
-    float edge_length = abs(bbox0.x);
+    glm::vec4 center = voxels[index];
     float3 center_depth = make_float3(0.0f, 0.0f, 0.0f);
     int node_idx = 0;
     int this_node;
@@ -183,13 +180,11 @@ __global__ void mipmapBricks(int* octree, int poolSize, int startNode, cudaArray
   surf3Dwrite(5.0f, brick_surf, 1, 1, 1, cudaBoundaryModeClamp);
 }
 
-__global__ void createCubeMeshFromSVO(int* octree, int* counter, int total_depth, float3 bbox0, float cube_scale, int num_voxels, float* cube_vbo,
-  int cube_vbosize, int* cube_ibo, int cube_ibosize, float* cube_nbo, float* out_vbo, int* out_ibo, float* out_nbo, float* out_cbo) {
+__global__ void createVoxelGridFromSVO(int* octree, int* counter, int total_depth, float edge_length, VoxelGrid& grid) {
 
   //Get the index for the thread
   int idx = blockIdx.x*blockDim.x + threadIdx.x;
 
-  float edge_length = abs(bbox0.x);
   float3 center = make_float3(0.0f, 0.0f, 0.0f);
   int pointer = 0;
   bool has_child = true;
@@ -265,7 +260,7 @@ __global__ void createCubeMeshFromSVO(int* octree, int* counter, int total_depth
 }
 
 //This is based on Cyril Crassin's approach
-extern "C" void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* d_octree, cudaArray* d_bricks) {
+extern "C" void svoFromVoxelGrid(VoxelGrid& grid, int* d_octree, cudaArray* d_bricks) {
   int numNodes = 8;
   std::stack<int> startingNodes;
   startingNodes.push(0);
@@ -277,10 +272,10 @@ extern "C" void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* 
   //Get voxel grid params
   voxelization::gridParams params = voxelization::getParams();
 
-  while (numNodes < (numVoxels*voxelization::log_N) && ++depth < voxelization::log_N) {
+  while (numNodes < (grid.size*voxelization::log_N) && ++depth < voxelization::log_N) {
 
     //First, parallelize on voxels and flag nodes to be subdivided
-    flagNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_octree, voxelization::M, voxelization::T, params.bbox0, params.t_d, params.p_d, depth);
+    flagNodes<<<(grid.size / 256) + 1, 256>>>(grid.centers, grid.size, d_octree, grid.scale, depth);
 
     cudaDeviceSynchronize();
 
@@ -295,7 +290,7 @@ extern "C" void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* 
   std::cout << "Num Nodes: " << numNodes << std::endl;
 
   //Write voxel values into the lowest level of the svo
-  fillNodes<<<(numVoxels / 256) + 1, 256>>>(d_voxels, numVoxels, d_values, d_octree, voxelization::M, voxelization::T, params.bbox0, params.t_d, params.p_d);
+  fillNodes<<<(grid.size / 256) + 1, 256>>>(grid.centers, grid.size, grid.colors, d_octree, grid.scale);
   cudaDeviceSynchronize();
 
   //Initialize the global brick counter
@@ -327,28 +322,7 @@ extern "C" void svoFromVoxels(int* d_voxels, int numVoxels, int* d_values, int* 
   }
 }
 
-extern "C" void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, Mesh &m_out) {
-
-  //Move cube data to GPU
-  thrust::device_vector<float> d_vbo_cube(m_cube.vbo, m_cube.vbo + m_cube.vbosize);
-  thrust::device_vector<int> d_ibo_cube(m_cube.ibo, m_cube.ibo + m_cube.ibosize);
-  thrust::device_vector<float> d_nbo_cube(m_cube.nbo, m_cube.nbo + m_cube.nbosize);
-
-  //Create output structs
-  float* d_vbo_out;
-  int* d_ibo_out;
-  float* d_nbo_out;
-  float* d_cbo_out;
-  cudaMalloc((void**)&d_vbo_out, numVoxels * m_cube.vbosize * sizeof(float));
-  cudaMalloc((void**)&d_ibo_out, numVoxels * m_cube.ibosize * sizeof(int));
-  cudaMalloc((void**)&d_nbo_out, numVoxels * m_cube.nbosize * sizeof(float));
-  cudaMalloc((void**)&d_cbo_out, numVoxels * m_cube.nbosize * sizeof(float));
-
-  //Warn if vbo and nbo are not same size on cube
-  if (m_cube.vbosize != m_cube.nbosize) {
-    std::cout << "ERROR: cube vbo and nbo have different sizes." << std::endl;
-    return;
-  }
+extern "C" void extractVoxelGridFromSVO(int* d_octree, int numVoxels, VoxelGrid& grid) {
 
   //Create global counter to determine where to write the output
   int* d_counter;
@@ -363,75 +337,10 @@ extern "C" void extractCubesFromSVO(int* d_octree, int numVoxels, Mesh &m_cube, 
   voxelization::gridParams params = voxelization::getParams();
 
   //Create resulting cube-ized mesh
-  createCubeMeshFromSVO << <(voxelization::N*voxelization::N*voxelization::N / 256 / fac) + 1, 256 >> >(d_octree, d_counter, log_SVO_N, params.bbox0, voxelization::CUBE_MESH_SCALE, 
-    numVoxels, thrust::raw_pointer_cast(&d_vbo_cube.front()), m_cube.vbosize, thrust::raw_pointer_cast(&d_ibo_cube.front()), m_cube.ibosize, thrust::raw_pointer_cast(&d_nbo_cube.front()), 
-    d_vbo_out, d_ibo_out, d_nbo_out, d_cbo_out);
-
-  //Store output sizes
-  m_out.vbosize = numVoxels * m_cube.vbosize;
-  m_out.ibosize = numVoxels * m_cube.ibosize;
-  m_out.nbosize = numVoxels * m_cube.nbosize;
-  m_out.cbosize = m_out.nbosize;
-
-  //Memory allocation for the outputs
-  m_out.vbo = (float*)malloc(m_out.vbosize * sizeof(float));
-  m_out.ibo = (int*)malloc(m_out.ibosize * sizeof(int));
-  m_out.nbo = (float*)malloc(m_out.nbosize * sizeof(float));
-  m_out.cbo = (float*)malloc(m_out.cbosize * sizeof(float));
+  createVoxelGridFromSVO << <(voxelization::N*voxelization::N*voxelization::N / 256 / fac) + 1, 256 >> >(d_octree, d_counter, log_SVO_N, params.bbox0, voxelization::CUBE_MESH_SCALE, grid);
 
   //Sync here after doing some CPU work
   cudaDeviceSynchronize();
-
-  //Copy data back from GPU
-  //TODO: Can we avoid this step by making everything run from device-side VBO/IBO/NBO/CBO?
-  cudaMemcpy(m_out.vbo, d_vbo_out, m_out.vbosize*sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(m_out.ibo, d_ibo_out, m_out.ibosize*sizeof(int), cudaMemcpyDeviceToHost);
-  cudaMemcpy(m_out.nbo, d_nbo_out, m_out.nbosize*sizeof(float), cudaMemcpyDeviceToHost);
-  cudaMemcpy(m_out.cbo, d_cbo_out, m_out.cbosize*sizeof(float), cudaMemcpyDeviceToHost);
-
-  ///Free GPU memory
-  cudaFree(d_vbo_out);
-  cudaFree(d_ibo_out);
-  cudaFree(d_nbo_out);
-  cudaFree(d_counter);
-}
-
-extern "C" void voxelizeSVOCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out) {
-
-  //Voxelize the mesh input
-  int numVoxels = voxelization::N * voxelization::N * voxelization::N;
-  int* d_voxels;
-  int* d_values;
-  cudaMalloc((void**)&d_voxels, numVoxels*sizeof(int));
-  cudaMalloc((void**)&d_values, numVoxels*sizeof(int));
-  numVoxels = voxelization::voxelizeMesh(m_in, tex, d_voxels, d_values);
-
-  //Create the octree (with the brick pool)
-  int* d_octree = NULL;
-  cudaMalloc((void**)&d_octree, 8 * voxelization::log_N * numVoxels * sizeof(int));
-  cudaArray* d_bricks = NULL;
-  cudaChannelFormatDesc channel = cudaCreateChannelDesc<float>();
-  cudaExtent extents;
-  extents.width = 3*numVoxels;
-  extents.height = 3;
-  extents.depth = 3;
-  if (USE_BRICK_POOL) {
-    cudaMalloc3DArray(&d_bricks, &channel, extents, cudaArraySurfaceLoadStore);
-    cudaBindTextureToArray(brick_tex, d_bricks);
-    cudaBindSurfaceToArray(brick_surf, d_bricks);
-  }
-  svoFromVoxels(d_voxels, numVoxels, d_values, d_octree, d_bricks);
-
-  //Extract cubes from the leaves of the octree
-  extractCubesFromSVO(d_octree, numVoxels, m_cube, m_out);
-
-  //Free up GPU memory
-  cudaFree(d_voxels);
-  cudaFree(d_octree);
-  if (USE_BRICK_POOL) {
-    cudaFreeArray(d_bricks);
-  }
-
 }
 
 } // namespace svo

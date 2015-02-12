@@ -10,11 +10,15 @@ namespace octree_slam {
 
 namespace voxelization {
 
-extern "C" void voxelizeToCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out);
+const float CUBE_MESH_SCALE = 0.1f;
 
-extern "C" void voxelizeToGrid(Mesh &m_in, bmp_texture* tex, VoxelGrid &grid_out);
+//Declare voxelization resolution
+#define GRID_RES 8
+#define TILE_SIZE 3
 
-extern "C" void setWorldSize(float minx, float miny, float minz, float maxx, float maxy, float maxz);
+extern "C" void voxelGridToMesh(const VoxelGrid& grid, const Mesh &m_cube, Mesh &m_out);
+
+extern "C" void meshToVoxelGrid(const Mesh &m_in, const bmp_texture* tex, VoxelGrid &grid_out);
 
 } // namespace voxelization
 

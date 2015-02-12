@@ -29,8 +29,6 @@ void Scene::loadObjFile(const std::string& filename) {
   obj* o = new obj();
   objLoader loader(filename, o);
   o->buildVBOs();
-  updateBBox(o->getBoundingBox()[0], o->getBoundingBox()[1], o->getBoundingBox()[18], 
-    o->getBoundingBox()[8], o->getBoundingBox()[5], o->getBoundingBox()[2]);
   Mesh mesh = objToMesh(o);
   meshes_.push_back(mesh);
   delete o;
@@ -71,14 +69,11 @@ void Scene::voxelizeMeshes(const bool octree) {
     return;
   }
 
-  //For now, just voxelize the first mesh
-  voxelization::setWorldSize(bbox_[0], bbox_[1], bbox_[2], bbox_[3], bbox_[4], bbox_[5]);
-
   if (!octree) {
-    voxelization::voxelizeToGrid(meshes_[0], &textures_[0], voxel_grid_);
+    voxelization::meshToVoxelGrid(meshes_[0], &textures_[0], voxel_grid_);
   } else {
     VoxelGrid grid;
-    voxelization::voxelizeToGrid(meshes_[0], &textures_[0], grid);
+    voxelization::meshToVoxelGrid(meshes_[0], &textures_[0], grid);
     tree_->addVoxelGrid(grid);
   }
 }
@@ -97,16 +92,10 @@ Mesh Scene::objToMesh(obj* object) {
   m.tbo = object->getTBO();
   m.tbosize = object->getTBOsize();
 
-  return m;
-}
+  m.bbox.bbox0 = make_float3(object->getBoundingBox()[0], object->getBoundingBox()[1], object->getBoundingBox()[18]);
+  m.bbox.bbox1 = make_float3(object->getBoundingBox()[8], object->getBoundingBox()[5], object->getBoundingBox()[2]);
 
-void Scene::updateBBox(const float x1, const float y1, const float z1, const float x2, const float y2, const float z2) {
-  bbox_[0] = std::min(x1, bbox_[0]);
-  bbox_[1] = std::min(y1, bbox_[1]);
-  bbox_[2] = std::min(z1, bbox_[2]);
-  bbox_[3] = std::max(x2, bbox_[3]);
-  bbox_[4] = std::max(y2, bbox_[4]);
-  bbox_[5] = std::max(z2, bbox_[5]);
+  return m;
 }
 
 } // namespace world

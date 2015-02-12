@@ -3,6 +3,12 @@
 
 #include <stdint.h>
 #include "glm/glm.hpp"
+#include <vector_types.h>
+
+struct BoundingBox {
+  float3 bbox0;
+  float3 bbox1;
+};
 
 //This is a lighter weight version of obj
 struct Mesh {
@@ -16,6 +22,7 @@ struct Mesh {
   float* cbo;
   int* ibo;
   float* tbo;
+  BoundingBox bbox;
 };
 
 struct bmp_texture {
@@ -40,10 +47,12 @@ struct Color256 {
 
 struct VoxelGrid {
   ~VoxelGrid();
+  void setBoundingBox(const float3& b0, const float3& b1);
   glm::vec4* centers;
   glm::vec4* colors;
   float scale;
   int size;
+  BoundingBox bbox;
 };
 
 struct RawFrame {

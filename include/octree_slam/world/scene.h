@@ -46,9 +46,6 @@ private:
   //Convenience utility for converting an obj to a Mesh struct
   Mesh objToMesh(obj* object);
 
-  //Convenience utility for updating the bounding box with a new object
-  void updateBBox(const float x1, const float x2, const float y1, const float y2, const float z1, const float z2);
-
   //The meshes in the scene
   std::vector<Mesh> meshes_;
 

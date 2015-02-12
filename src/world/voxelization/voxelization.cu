@@ -14,16 +14,66 @@
 // Octree-SLAM Dependencies
 #include <octree_slam/timing_utils.h>
 #include <octree_slam/world/voxelization/voxelization.h>
-#include <octree_slam/world/voxelization/voxelization_utils.h>
 #include <octree_slam/cuda_common_kernels.h>
 
 namespace octree_slam {
 
 namespace voxelization {
 
-gridParams params;
-voxelpipe::FRContext<log_N, log_T>*  context;
+__host__ __device__ int log_N() {
+  return GRID_RES;
+}
+__host__ __device__ int log_T() {
+  return TILE_SIZE;
+}
+//N is the total number of voxels (per dimension)
+__host__ __device__ int N() {
+  return 1 << log_N();
+}
+//M is the total number of tiles (per dimension)
+__host__ __device__ int M() {
+  return 1 << (log_N() - log_T());
+}
+//T is the tile size - voxels per tile (per dimension)
+__host__ __device__ int T() {
+  return 1 << log_T();
+}
+
+voxelpipe::FRContext<GRID_RES, TILE_SIZE>*  context;
 bool first_time = true;
+
+//Utility function for computing voxel sizes
+__device__ void getSizes(const float3& bbox0, const float3& bbox1, float3& t_d, float3& p_d) {
+  //Compute tile/grid sizes
+  t_d = make_float3((bbox1.x - bbox0.x) / float(M()),
+    (bbox1.y - bbox0.y) / float(M()),
+    (bbox1.z - bbox0.z) / float(M()));
+  p_d = make_float3(t_d.x / float(T()),
+    t_d.y / float(T()), t_d.z / float(T()));
+}
+
+__device__ float3 getCenterFromIndex(int idx, float3 bbox0, float3 bbox1) {
+  float3 p_d, t_d;
+  getSizes(bbox0, bbox1, t_d, p_d);
+  int T3 = T()*T()*T();
+  int tile_num = idx / T3;
+  int pix_num = idx % T3;
+  float3 cent;
+  int tz = tile_num / (M()*M()) % M();
+  int pz = pix_num / (T()*T()) % T();
+  int ty = tile_num / M() % M();
+  int py = pix_num / T() % T();
+  int tx = tile_num % M();
+  int px = pix_num % T();
+  cent.x = bbox0.x + tx*t_d.x + px*p_d.x + p_d.x / 2.0f;
+  cent.y = bbox0.y + ty*t_d.y + py*p_d.y + p_d.y / 2.0f;
+  cent.z = bbox0.z + tz*t_d.z + pz*p_d.z + p_d.z / 2.0f;
+  return cent;
+}
+
+__host__ float computeScale(const float3& bbox0, const float3& bbox1) {
+  return (bbox1.x - bbox0.x)/float(N())/2.0f;
+}
 
 struct ColorShader
 {
@@ -127,7 +177,7 @@ __global__ void extractValues(void* fb, int* voxels, int num_voxels, int* values
   }
 }
 
-__global__ void createCubeMesh(int* voxels, int* values, int M, int T, float3 bbox0, float3 t_d, float3 p_d, float scale_factor, int num_voxels, float* cube_vbo, 
+__global__ void createCubeMesh(const glm::vec4* voxels, const glm::vec4* values, const float scale_factor, const int num_voxels, float* cube_vbo, 
                                 int cube_vbosize, int* cube_ibo, int cube_ibosize, float* cube_nbo, float* out_vbo, int* out_ibo, float* out_nbo, float* out_cbo) {
 
   //Get the index for the thread
@@ -137,19 +187,19 @@ __global__ void createCubeMesh(int* voxels, int* values, int M, int T, float3 bb
 
     int vbo_offset = idx * cube_vbosize;
     int ibo_offset = idx * cube_ibosize;
-    float3 center = getCenterFromIndex(voxels[idx], M, T, bbox0, t_d, p_d);
-    int color = values[idx];
+    glm::vec4 center = voxels[idx];
+    glm::vec4 color = values[idx];
 
     for (int i = 0; i < cube_vbosize; i++) {
       if (i % 3 == 0) {
         out_vbo[vbo_offset + i] = cube_vbo[i] * scale_factor + center.x;
-        out_cbo[vbo_offset + i] = (float)((color & 0xFF)/255.0);
+        out_cbo[vbo_offset + i] = color.r;
       } else if (i % 3 == 1) {
         out_vbo[vbo_offset + i] = cube_vbo[i] * scale_factor + center.y;
-        out_cbo[vbo_offset + i] = (float)(((color >> 8) & 0xFF)/255.0);
+        out_cbo[vbo_offset + i] = color.g;
       } else {
         out_vbo[vbo_offset + i] = cube_vbo[i] * scale_factor + center.z;
-        out_cbo[vbo_offset + i] = (float)(((color >> 16) & 0xFF)/255.0);
+        out_cbo[vbo_offset + i] = color.b;
       }
       out_nbo[vbo_offset + i] = cube_nbo[i];
     }
@@ -162,14 +212,14 @@ __global__ void createCubeMesh(int* voxels, int* values, int M, int T, float3 bb
 
 }
 
-__global__ void createVoxelGrid(int* voxels, int* values, int M, int T, float3 bbox0, float3 t_d, float3 p_d, int num_voxels, glm::vec4* centers, glm::vec4* colors) {
+__global__ void createVoxelGrid(const int* voxels, const int* values, const float3 bbox0, const float3 bbox1, const int num_voxels, glm::vec4* centers, glm::vec4* colors) {
 
   //Get the index for the thread
   int idx = blockIdx.x*blockDim.x + threadIdx.x;
 
   if (idx < num_voxels) {
 
-    float3 center = getCenterFromIndex(voxels[idx], M, T, bbox0, t_d, p_d);
+    float3 center = getCenterFromIndex(voxels[idx], bbox0, bbox1);
     centers[idx] = glm::vec4(center.x, center.y, center.z, 1.0f);
 
     int color = values[idx];
@@ -181,7 +231,7 @@ __global__ void createVoxelGrid(int* voxels, int* values, int M, int T, float3 b
 
 }
 
-__host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_values) {
+__host__ int voxelizeMesh(const Mesh &m_in, const bmp_texture* h_tex, const BoundingBox& box, int* d_voxels, int* d_values) {
 
   //Initialize sizes
   const int n_triangles = m_in.ibosize / 3;
@@ -209,7 +259,7 @@ __host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_
 
   if (first_time) {
     //Create the voxelpipe context
-    context = new voxelpipe::FRContext<log_N, log_T>();
+    context = new voxelpipe::FRContext<GRID_RES, TILE_SIZE>();
 
     //Reserve data for voxelpipe
     context->reserve(n_triangles, 1024u * 1024u * 16u);
@@ -217,7 +267,7 @@ __host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_
   first_time = false;
 
   //Initialize the result data on the device
-  thrust::device_vector<float>  d_fb(M*M*M * T*T*T);
+  thrust::device_vector<float>  d_fb(M()*M()*M() * T()*T()*T());
 
   //Copy the texture to the device
   glm::vec3 *device_tex = NULL;
@@ -238,18 +288,18 @@ __host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_
   my_shader.texcoord_size = m_in.tbosize;
 
   //Perform coarse and fine voxelization
-  context->coarse_raster(n_triangles, n_vertices, thrust::raw_pointer_cast(&d_triangles.front()), thrust::raw_pointer_cast(&d_vertices.front()), params.bbox0, params.bbox1);
+  context->coarse_raster(n_triangles, n_vertices, thrust::raw_pointer_cast(&d_triangles.front()), thrust::raw_pointer_cast(&d_vertices.front()), box.bbox0, box.bbox1);
   context->fine_raster< voxelpipe::Float, voxelpipe::FP32S_FORMAT, voxelpipe::THIN_RASTER, voxelpipe::NO_BLENDING, ColorShader >(
-    n_triangles, n_vertices, thrust::raw_pointer_cast(&d_triangles.front()), thrust::raw_pointer_cast(&d_vertices.front()), params.bbox0, params.bbox1, thrust::raw_pointer_cast(&d_fb.front()), my_shader);
+    n_triangles, n_vertices, thrust::raw_pointer_cast(&d_triangles.front()), thrust::raw_pointer_cast(&d_vertices.front()), box.bbox0, box.bbox1, thrust::raw_pointer_cast(&d_fb.front()), my_shader);
 
   cudaFree(device_tex);
   cudaFree(device_texcoord);
 
   //Get voxel centers
-  int numVoxels = N*N*N;
+  int numVoxels = N()*N()*N();
   int* d_vox;
   cudaMalloc((void**)&d_vox, numVoxels*sizeof(int));
-  getOccupiedVoxels<< <N*N*N, 256 >> >(thrust::raw_pointer_cast(&d_fb.front()), M, T, d_vox);
+  getOccupiedVoxels<< <N()*N()*N(), 256 >> >(thrust::raw_pointer_cast(&d_fb.front()), M(), T(), d_vox);
   cudaDeviceSynchronize();
 
   //Stream Compact voxels to remove the empties
@@ -266,7 +316,7 @@ __host__ int voxelizeMesh(Mesh &m_in, bmp_texture* h_tex, int* d_voxels, int* d_
   return numVoxels;
 }
 
-__host__ void extractCubesFromVoxelGrid(int* d_voxels, int numVoxels, int* d_values, Mesh &m_cube, Mesh &m_out) {
+__host__ void voxelGridToMesh(const VoxelGrid& grid, const Mesh &m_cube, Mesh &m_out) {
 
   //Move cube data to GPU
   thrust::device_vector<float> d_vbo_cube(m_cube.vbo, m_cube.vbo + m_cube.vbosize);
@@ -278,10 +328,10 @@ __host__ void extractCubesFromVoxelGrid(int* d_voxels, int numVoxels, int* d_val
   int* d_ibo_out;
   float* d_nbo_out;
   float* d_cbo_out;
-  cudaMalloc((void**)&d_vbo_out, numVoxels * m_cube.vbosize * sizeof(float));
-  cudaMalloc((void**)&d_ibo_out, numVoxels * m_cube.ibosize * sizeof(int));
-  cudaMalloc((void**)&d_nbo_out, numVoxels * m_cube.nbosize * sizeof(float));
-  cudaMalloc((void**)&d_cbo_out, numVoxels * m_cube.nbosize * sizeof(float));
+  cudaMalloc((void**)&d_vbo_out, grid.size * m_cube.vbosize * sizeof(float));
+  cudaMalloc((void**)&d_ibo_out, grid.size * m_cube.ibosize * sizeof(int));
+  cudaMalloc((void**)&d_nbo_out, grid.size * m_cube.nbosize * sizeof(float));
+  cudaMalloc((void**)&d_cbo_out, grid.size * m_cube.nbosize * sizeof(float));
 
   //Warn if vbo and nbo are not same size on cube
   if (m_cube.vbosize != m_cube.nbosize) {
@@ -290,13 +340,13 @@ __host__ void extractCubesFromVoxelGrid(int* d_voxels, int numVoxels, int* d_val
   }
 
   //Create resulting cube-ized mesh
-  createCubeMesh<<<(numVoxels / 256) + 1, 256>>>(d_voxels, d_values, M, T, params.bbox0, params.t_d, params.p_d, params.vox_size / CUBE_MESH_SCALE, numVoxels, thrust::raw_pointer_cast(&d_vbo_cube.front()),
+  createCubeMesh << <(grid.size / 256) + 1, 256 >> >(grid.centers, grid.colors, computeScale(grid.bbox.bbox0, grid.bbox.bbox1) / CUBE_MESH_SCALE, grid.size, thrust::raw_pointer_cast(&d_vbo_cube.front()),
     m_cube.vbosize, thrust::raw_pointer_cast(&d_ibo_cube.front()), m_cube.ibosize, thrust::raw_pointer_cast(&d_nbo_cube.front()), d_vbo_out, d_ibo_out, d_nbo_out, d_cbo_out);
 
   //Store output sizes
-  m_out.vbosize = numVoxels * m_cube.vbosize;
-  m_out.ibosize = numVoxels * m_cube.ibosize;
-  m_out.nbosize = numVoxels * m_cube.nbosize;
+  m_out.vbosize = grid.size * m_cube.vbosize;
+  m_out.ibosize = grid.size * m_cube.ibosize;
+  m_out.nbosize = grid.size * m_cube.nbosize;
   m_out.cbosize = m_out.nbosize;
 
   //Memory allocation for the outputs
@@ -320,82 +370,32 @@ __host__ void extractCubesFromVoxelGrid(int* d_voxels, int numVoxels, int* d_val
   cudaFree(d_ibo_out);
   cudaFree(d_nbo_out);
   cudaFree(d_cbo_out);
-
 }
 
-__host__ void voxelizeToCubes(Mesh &m_in, bmp_texture* tex, Mesh &m_cube, Mesh &m_out) {
-  
+__host__ void meshToVoxelGrid(const Mesh &m_in, const bmp_texture* tex, VoxelGrid &grid_out) {
   //Voxelize the mesh input
-  int numVoxels = N*N*N;
+  int numVoxels = N()*N()*N();
   int* d_voxels;
   int* d_values;
   cudaMalloc((void**)&d_voxels, numVoxels*sizeof(int));
   cudaMalloc((void**)&d_values, numVoxels*sizeof(int));
-  startTiming();
-  numVoxels = voxelizeMesh(m_in, tex, d_voxels, d_values);
-  std::cout << "Vox Time: " << stopTiming() << std::endl;
-
-  //Extract Cubes from the Voxel Grid
-  startTiming();
-  extractCubesFromVoxelGrid(d_voxels, numVoxels, d_values, m_cube, m_out);
-  std::cout << "Extraction Time: " << stopTiming() << std::endl;
-
-  cudaFree(d_voxels);
-  cudaFree(d_values);
-}
-
-__host__ void voxelizeToGrid(Mesh &m_in, bmp_texture* tex, VoxelGrid &grid_out) {
-  //Voxelize the mesh input
-  int numVoxels = N*N*N;
-  int* d_voxels;
-  int* d_values;
-  cudaMalloc((void**)&d_voxels, numVoxels*sizeof(int));
-  cudaMalloc((void**)&d_values, numVoxels*sizeof(int));
-  numVoxels = voxelizeMesh(m_in, tex, d_voxels, d_values);
+  numVoxels = voxelizeMesh(m_in, tex, m_in.bbox, d_voxels, d_values);
 
   //Extract centers and colors
   cudaMalloc((void**)&(grid_out.centers), numVoxels*sizeof(glm::vec4));
   cudaMalloc((void**)&(grid_out.colors), numVoxels*sizeof(glm::vec4));
-  createVoxelGrid<<<numVoxels / 256 + 1, 256>>>(d_voxels, d_values, M, T, params.bbox0, params.t_d, params.p_d, numVoxels, grid_out.centers, grid_out.colors);
+  createVoxelGrid<<<numVoxels / 256 + 1, 256>>>(d_voxels, d_values, m_in.bbox.bbox0, m_in.bbox.bbox1, numVoxels, grid_out.centers, grid_out.colors);
 
   //Free old memory from the grid
   cudaFree(d_voxels);
   cudaFree(d_values);
 
   //Set the scale and size
-  grid_out.scale = params.vox_size;
+  grid_out.scale = computeScale(m_in.bbox.bbox0, m_in.bbox.bbox1);
   grid_out.size = numVoxels;
-}
 
-__host__ void setWorldSize(float minx, float miny, float minz, float maxx, float maxy, float maxz) {
-
-  //Use max dimension to base the grid size
-  //TODO: Handle non-rectangular, non-centered objects
-  float size = 0.0f;
-  size = std::max(size, abs(minx));
-  size = std::max(size, abs(miny));
-  size = std::max(size, abs(minz));
-  size = std::max(size, abs(maxx));
-  size = std::max(size, abs(maxy));
-  size = std:: max(size, abs(maxz));
-
-  //Create bounding box to perform voxelization within
-  params.bbox0 = make_float3(-size, -size, -size);
-  params.bbox1 = make_float3(size, size, size);
-
-  //Compute the 1/2 edge length for the resulting voxelization
-  params.vox_size = size / float(N);
-
-  //Compute tile/grid sizes
-  params.t_d = make_float3((params.bbox1.x - params.bbox0.x) / float(M),
-    (params.bbox1.y - params.bbox0.y) / float(M),
-    (params.bbox1.z - params.bbox0.z) / float(M));
-  params.p_d = make_float3(params.t_d.x / float(T),
-    params.t_d.y / float(T), params.t_d.z / float(T));
-}
-
-__host__ gridParams getParams() {
-  return params;
+  //Copy the bounding box
+  grid_out.bbox = m_in.bbox;
 }
 
 } // namespace voxelization

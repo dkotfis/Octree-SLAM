@@ -32,7 +32,7 @@ __global__ void copyPointsToGLKernel(const glm::vec3* vertices, const Color256* 
 }
 
 extern "C" void copyPointsToGL(const glm::vec3* vertices, const Color256* colors, float3* vbo, float3* cbo, const int num_points) {
-  copyPointsToGLKernel<<<num_points / 256 + 1, 256>>>(vertices, colors, vbo, cbo, num_points);
+  copyPointsToGLKernel<<<ceil((float)num_points / 256.0f), 256>>>(vertices, colors, vbo, cbo, num_points);
   cudaDeviceSynchronize();
 }
 

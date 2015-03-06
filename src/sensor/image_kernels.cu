@@ -44,7 +44,7 @@ __global__ void generateVertexMapKernel(const uint16_t* depth_pixels, glm::vec3*
 }
 
 extern "C" void generateVertexMap(const uint16_t* depth_pixels, glm::vec3* vertex_map, const int width, const int height, const glm::vec2 focal_length, const int2 img_size) {
-  generateVertexMapKernel<<<width*height / 256 + 1, 256>>>(depth_pixels, vertex_map, width, height, focal_length, img_size);
+  generateVertexMapKernel<<<ceil((float)width * (float)height / 256.0f), 256>>>(depth_pixels, vertex_map, width, height, focal_length, img_size);
   cudaDeviceSynchronize();
 }
 
@@ -81,7 +81,7 @@ __global__ void generateNormalMapKernel(const glm::vec3* vertex_map, glm::vec3* 
 }
 
 extern "C" void generateNormalMap(const glm::vec3* vertex_map, glm::vec3* normal_map, const int width, const int height) {
-  generateNormalMapKernel<<<width*height / 256 + 1, 256>>>(vertex_map, normal_map, width, height);
+  generateNormalMapKernel<<<ceil((float)width * (float)height / 256.0f), 256>>>(vertex_map, normal_map, width, height);
   cudaDeviceSynchronize();
 }
 
@@ -128,7 +128,7 @@ extern "C" void bilateralFilter(const uint16_t* depth_in, uint16_t* filtered_out
   uint2 dims = make_uint2(width, height);
   float spatial = 0.5f / (BILATERAL_SIGMA_SPATIAL * BILATERAL_SIGMA_SPATIAL);
   float depth = 0.5 / (BILATERAL_SIGMA_DEPTH * BILATERAL_SIGMA_DEPTH);
-  bilateralKernel<<<width*height/256 + 1, 256>>>(depth_in, filtered_out, dims, BILATERAL_KERNEL_SIZE, spatial, depth);
+  bilateralKernel<<<ceil((float)width * (float)height/256.0f), 256>>>(depth_in, filtered_out, dims, BILATERAL_KERNEL_SIZE, spatial, depth);
   cudaDeviceSynchronize();
 }
 
@@ -145,7 +145,7 @@ __global__ void colorToIntensityKernel(const Color256* color_in, float* intensit
 }
 
 extern "C" void colorToIntensity(const Color256* color_in, float* intensity_out, const int size) {
-  colorToIntensityKernel<<<size/256 + 1, 256>>>(color_in, intensity_out, size, INTENSITY_RATIO);
+  colorToIntensityKernel<<<ceil((float)size/256.0f), 256>>>(color_in, intensity_out, size, INTENSITY_RATIO);
   cudaDeviceSynchronize();
 }
 
@@ -162,7 +162,7 @@ __global__ void transformVertexMapKernel(glm::vec3* vertex, const glm::mat4 tran
 }
 
 extern "C" void transformVertexMap(glm::vec3* vertex_map, const glm::mat4 &trans, const int size) {
-  transformVertexMapKernel<<<size / 256 + 1, 256>>>(vertex_map, trans, size);
+  transformVertexMapKernel<<<ceil((float)size / 256.0f), 256>>>(vertex_map, trans, size);
 }
 
 __global__ void transformNormalMapKernel(glm::vec3* normal, const glm::mat4 trans, const int size) {
@@ -177,7 +177,7 @@ __global__ void transformNormalMapKernel(glm::vec3* normal, const glm::mat4 tran
 }
 
 extern "C" void transformNormalMap(glm::vec3* normal_map, const glm::mat4 &trans, const int size) {
-  transformNormalMapKernel<<<size / 256 + 1, 256>>>(normal_map, trans, size);
+  transformNormalMapKernel<<<ceil((float)size / 256.0f), 256>>>(normal_map, trans, size);
 }
 
 template <class T>
@@ -221,7 +221,7 @@ void subsampleDepth(T* data, const int width, const int height) {
   T* data_new;
   cudaMalloc((void**)&data_new, width*height*sizeof(T)/4);
 
-  subsampleDepthKernel<<<width*height/1024 + 1, 256>>>(data, data_new, width/2, height/2, BILATERAL_SIGMA_DEPTH*3.0f);
+  subsampleDepthKernel<<<ceil((float)width * (float)height/1024.0f), 256>>>(data, data_new, width/2, height/2, BILATERAL_SIGMA_DEPTH*3.0f);
   cudaDeviceSynchronize();
 
   //Copy into the input

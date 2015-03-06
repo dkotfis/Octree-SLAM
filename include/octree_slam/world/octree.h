@@ -34,7 +34,7 @@ private:
   void pushToGPU();
 
   //Gets the total number of allocated, non-zero children, recursively
-  int totalChildren();
+  int totalChildren() const;
 
   //Recursively adds data to a stackless octree structure
   int addToLinearTree(int* octree, const int position, const int offset);
@@ -47,6 +47,12 @@ private:
 
   //Expands the node by 1 size, maintaining its center
   void expand();
+
+  //Makes sure the given bounding box is on the GPU, and moves it there if it is now
+  void moveBoundingBoxToGPU(const BoundingBox& bbox, const BoundingBox& this_bbox);
+
+  //Gets the node that the bounding box is affecting, recursively
+  OctreeNode* getNodeContainingBoundingBox(const BoundingBox& bbox, BoundingBox& this_bbox, int& current_depth, glm::vec3& result_center);
 
   //Flag whether the node is at max resolution
   bool is_max_depth_;
@@ -89,6 +95,9 @@ public:
   //Adds a voxelized mesh
   void addVoxelGrid(const VoxelGrid& grid);
 
+  //Extracts a voxel grid from the octree at max resolution, inside the bounding box of the input grid
+  void extractVoxelGrid(VoxelGrid& grid);
+
 private:
 
   //Expands the tree to a new size, keeping the current center
@@ -102,6 +111,9 @@ private:
 
   //Size of the root node (half edge length)
   float size_;
+
+  //The resolution of the octree
+  float resolution_;
 
 }; // class Octree
 

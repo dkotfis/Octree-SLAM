@@ -10,7 +10,8 @@ namespace octree_slam {
 
 namespace world {
 
-Scene::Scene(const std::string& path_prefix) {
+Scene::Scene(const std::string& path_prefix) : 
+tree_(NULL) {
   obj* o = new obj();
   objLoader loader(path_prefix + "../objs/cube.obj", o);
   o->buildVBOs();
@@ -22,7 +23,9 @@ Scene::Scene(const std::string& path_prefix) {
 }
 
 Scene::~Scene() {
-
+  if (tree_) {
+    delete tree_;
+  }
 }
 
 void Scene::loadObjFile(const std::string& filename) {
@@ -64,17 +67,25 @@ void Scene::loadBMP(const std::string& filename) {
 }
 
 void Scene::voxelizeMeshes(const bool octree) {
-  //TODO: Voxelize all meshes
+  //TODO: Voxelize all meshes, not just the first one
   if (meshes_.size() == 0) {
     return;
   }
 
   if (!octree) {
     voxelization::meshToVoxelGrid(meshes_[0], &textures_[0], voxel_grid_);
+    voxel_grid_.scale = meshes_[0].bbox.bbox1.x / (1 << GRID_RES);
   } else {
     VoxelGrid grid;
     voxelization::meshToVoxelGrid(meshes_[0], &textures_[0], grid);
+    voxel_grid_.scale = meshes_[0].bbox.bbox1.x / (1 << GRID_RES);
+    if (!tree_) {
+      tree_ = new Octree(voxel_grid_.scale, (meshes_[0].bbox.bbox1 + meshes_[0].bbox.bbox0) / 2.0f, meshes_[0].bbox.bbox1.x);
+    }
     tree_->addVoxelGrid(grid);
+    voxel_grid_.bbox = meshes_[0].bbox;
+    voxel_grid_.scale *= (float) 1; //Use this to render higher levels in the octree
+    tree_->extractVoxelGrid(voxel_grid_);
   }
 }
 
@@ -92,8 +103,8 @@ Mesh Scene::objToMesh(obj* object) {
   m.tbo = object->getTBO();
   m.tbosize = object->getTBOsize();
 
-  m.bbox.bbox0 = make_float3(object->getBoundingBox()[0], object->getBoundingBox()[1], object->getBoundingBox()[18]);
-  m.bbox.bbox1 = make_float3(object->getBoundingBox()[8], object->getBoundingBox()[5], object->getBoundingBox()[2]);
+  m.bbox.bbox0 = glm::vec3(object->getBoundingBox()[0], object->getBoundingBox()[1], object->getBoundingBox()[18]);
+  m.bbox.bbox1 = glm::vec3(object->getBoundingBox()[8], object->getBoundingBox()[5], object->getBoundingBox()[2]);
 
   return m;
 }

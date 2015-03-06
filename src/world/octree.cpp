@@ -17,6 +17,7 @@ gpu_size_(0) {
 }
 
 OctreeNode::OctreeNode(const unsigned int morton_code, const int max_depth) :
+has_children_(false),
 on_gpu_(false),
 gpu_size_(0) {
   //TODO: Determine is_max_depth_
@@ -38,6 +39,17 @@ OctreeNode::~OctreeNode() {
 }
 
 void OctreeNode::pushToGPU() {
+  //Don't need to repush if its on the GPU already
+  if (on_gpu_) {
+    return;
+  }
+
+  //Can't push if it hasn't been allocated
+  if (!has_children_) {
+    on_gpu_ = true;
+    return;
+  }
+
   //Determine how much space is needed and allocate it on the CPU
   int num_nodes = totalChildren();
   int* cpu_stackless = (int*) malloc(2*num_nodes*sizeof(int));
@@ -67,6 +79,11 @@ void OctreeNode::pushToGPU() {
 }
 
 void OctreeNode::pullToCPU() {
+  //Don't do anything if its already on the CPU
+  if (!on_gpu_) {
+    return;
+  }
+
   //Don't do anything if there isn't at least 8 children worth of GPU data
   if (gpu_size_ < 8) {
     printf("[OctreeNode] Tried to pull data from GPU that was of insufficient size.");
@@ -93,7 +110,7 @@ void OctreeNode::pullToCPU() {
   has_children_ = true;
 }
 
-int OctreeNode::totalChildren() {
+int OctreeNode::totalChildren() const {
   //Fill in for this node
   int total = (data_ != 0) ? 1 : 0;
 
@@ -188,10 +205,54 @@ void OctreeNode::expand() {
 
 }
 
+OctreeNode* OctreeNode::getNodeContainingBoundingBox(const BoundingBox& bbox, BoundingBox& this_bbox, int& current_depth, glm::vec3& result_center) {
+  //Use this node if it isn't allocated yet or its all on the GPU
+  if (!has_children_ || on_gpu_) {
+    return this;
+  }
+
+  //Compute the center of this node
+  glm::vec3 center = (this_bbox.bbox1 + this_bbox.bbox0) / 2.0f;
+
+  //Determine whether the full bounding box fits in one of the children
+  bool all_together = true;
+  bool x_plus, y_plus, z_plus;
+  if (x_plus = (bbox.bbox1.x > center.x) != (bbox.bbox0.x > center.x)) {
+    all_together = false;
+  }
+  else if (y_plus = (bbox.bbox1.y > center.y) != (bbox.bbox0.y > center.y)) {
+    all_together = false;
+  }
+  else if (z_plus = (bbox.bbox1.z > center.z) != (bbox.bbox0.z > center.z)) {
+    all_together = false;
+  }
+
+  //If the corners are in different children, this is the node we want
+  if (!all_together) {
+    result_center = center;
+    return this;
+  }
+  //Else continue to search the child that contains them
+  else {
+    //Construct the bounding box for the child
+    this_bbox.bbox0.x = x_plus ? center.x : this_bbox.bbox0.x;
+    this_bbox.bbox1.x = x_plus ? this_bbox.bbox1.x : center.x;
+    this_bbox.bbox0.y = y_plus ? center.y : this_bbox.bbox0.y;
+    this_bbox.bbox1.y = y_plus ? this_bbox.bbox1.y : center.y;
+    this_bbox.bbox0.z = z_plus ? center.z : this_bbox.bbox0.z;
+    this_bbox.bbox1.z = z_plus ? this_bbox.bbox1.z : center.z;
+
+    //Recurse into that child
+    int child_idx = x_plus + 2 * y_plus + 4 * z_plus;
+    return children_[child_idx]->getNodeContainingBoundingBox(bbox, this_bbox, ++current_depth, result_center);
+  }
+}
+
 Octree::Octree(const float resolution, const glm::vec3& center, const float size) : 
-root_(new OctreeNode(1, (int) log((float) (size/resolution))/log(2.0f))), 
+root_(new OctreeNode(1, (int) log((float) (size/resolution))/log(2.0f) + 1)), 
 center_(center),
-size_(size) {
+size_(size),
+resolution_(resolution) {
 }
 
 Octree::~Octree() {
@@ -210,11 +271,49 @@ void Octree::addCloud(const glm::vec3& origin, const glm::vec3* points, const Co
 }
 
 void Octree::addVoxelGrid(const VoxelGrid& grid) {
-  //TODO: Get the bounding box of the grid
+  //Compute the bounding box of the root
+  BoundingBox root_box;
+  root_box.bbox0 = center_ - glm::vec3(size_, size_, size_);
+  root_box.bbox1 = center_ + glm::vec3(size_, size_, size_);
 
-  //TODO: Make sure the proper node is in GPU memory, and move it if it is not
+  //Get the node for this bounding box
+  glm::vec3 node_cent = center_;
+  int node_depth = 0;
+  OctreeNode* subtree = root_->getNodeContainingBoundingBox(grid.bbox, root_box, node_depth, node_cent);
 
-  //TODO: Add voxels
+  //Calculate the edge length and depth of this node
+  float edge_length = size_ / pow(2.0f, (float)node_depth);
+  int max_depth = ceil(log((float)(edge_length / resolution_)) / log(2.0f));
+
+  //Make sure the subtree is in GPU memory
+  subtree->pushToGPU();
+
+  //Add voxels to it
+  svo::svoFromVoxelGrid(grid, max_depth, subtree->gpu_data_, subtree->gpu_size_, node_cent, edge_length); 
+}
+
+void Octree::extractVoxelGrid(VoxelGrid& grid) {
+  //TODO: Almost all of this is reused from addVoxelGrid. Refactor the API
+
+  //Compute the bounding box of the root
+  BoundingBox root_box;
+  root_box.bbox0 = center_ - glm::vec3(size_, size_, size_);
+  root_box.bbox1 = center_ + glm::vec3(size_, size_, size_);
+
+  //Get the node for this bounding box
+  glm::vec3 node_cent = center_;
+  int node_depth = 0;
+  OctreeNode* subtree = root_->getNodeContainingBoundingBox(grid.bbox, root_box, node_depth, node_cent);
+
+  //Calculate the edge length and depth of this node
+  float edge_length = size_ / pow(2.0f, (float)node_depth);
+  int max_depth = ceil(log((float)(edge_length / grid.scale)) / log(2.0f));
+
+  //Make sure the subtree is in GPU memory
+  subtree->pushToGPU();
+
+  //Pull voxel data from the octree pool
+  svo::extractVoxelGridFromSVO(subtree->gpu_data_, subtree->gpu_size_, max_depth, node_cent, edge_length, grid);
 }
 
 void Octree::expandToSize(const float new_size) {

@@ -35,8 +35,8 @@ const int cube_ind[36] = int[36] (
 );
 
 void main (void){
-  fs_position = vec3(u_mvpMatrix * vec4(cube_vert[cube_ind[gl_VertexID]]*u_scale + vec3(texelFetch(voxel_centers, gl_InstanceID)), 1.0));
+  gl_Position = u_mvpMatrix * vec4(cube_vert[cube_ind[gl_VertexID]]*u_scale + vec3(texelFetch(voxel_centers, gl_InstanceID)), 1.0);
+  fs_position = vec3(gl_Position);
   fs_normal = u_normMatrix * normalize(cube_vert[cube_ind[gl_VertexID]]);
   fs_color = vec3(texelFetch(voxel_colors, gl_InstanceID));
-  gl_Position = u_mvpMatrix * vec4(cube_vert[cube_ind[gl_VertexID]]*u_scale + vec3(texelFetch(voxel_centers, gl_InstanceID)), 1.0);
 }

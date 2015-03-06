@@ -238,7 +238,7 @@ extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_
   cudaMalloc((void**)&d_stencil, num_correspondences * sizeof(bool));
   cudaMalloc((void**)&d_num_corr, sizeof(int));
   cudaMemcpy(d_num_corr, &num_correspondences, sizeof(int), cudaMemcpyHostToDevice); //Initialize to the total points. Assume that most points will be valid
-  computeICPCorrespondences<<<num_correspondences /256 + 1, 256>>>(last_frame->vertex, last_frame->normal, this_frame.vertex, this_frame.normal, 
+  computeICPCorrespondences<<<ceil((float)num_correspondences /256.0f), 256>>>(last_frame->vertex, last_frame->normal, this_frame.vertex, this_frame.normal, 
     num_correspondences, d_stencil, d_num_corr);
   cudaDeviceSynchronize();
 
@@ -280,7 +280,7 @@ extern "C" void computeICPCost(const ICPFrame* last_frame, const ICPFrame &this_
   int load_size = 10;
   Mat6x7* d_A; //Note, the 6x6 A and 6x1 b are combined into a single array so they can be reduced together with thrust later
   cudaMalloc((void**) &d_A, (num_correspondences/load_size) * sizeof(Mat6x7));
-  computeICPCostsKernel<<<(num_correspondences / 16 / load_size) + 1, 16>>>(last_frame_reduced_normal, last_frame_reduced_vertex, this_frame_reduced_vertex, num_correspondences, load_size, d_A);
+  computeICPCostsKernel<<<ceil((float)num_correspondences / 16.0f / (float)load_size), 16>>>(last_frame_reduced_normal, last_frame_reduced_vertex, this_frame_reduced_vertex, num_correspondences, load_size, d_A);
   cudaDeviceSynchronize();
 
   //Free up device memory

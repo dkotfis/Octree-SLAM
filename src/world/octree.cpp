@@ -52,7 +52,7 @@ void OctreeNode::pushToGPU() {
 
   //Determine how much space is needed and allocate it on the CPU
   int num_nodes = totalChildren();
-  int* cpu_stackless = (int*) malloc(2*num_nodes*sizeof(int));
+  unsigned int* cpu_stackless = (unsigned int*) malloc(2*num_nodes*sizeof(unsigned int));
 
   //Fill in stackless octree data
   int offset = 8;
@@ -61,8 +61,8 @@ void OctreeNode::pushToGPU() {
   }
 
   //Copy it to the GPU
-  cudaMalloc((void**)&gpu_data_, 2*num_nodes*sizeof(int));
-  cudaMemcpy(gpu_data_, cpu_stackless, 2*num_nodes*sizeof(int), cudaMemcpyHostToDevice);
+  cudaMalloc((void**)&gpu_data_, 2*num_nodes*sizeof(unsigned int));
+  cudaMemcpy(gpu_data_, cpu_stackless, 2*num_nodes*sizeof(unsigned int), cudaMemcpyHostToDevice);
 
   //Free the CPU copy
   free(cpu_stackless);
@@ -91,8 +91,8 @@ void OctreeNode::pullToCPU() {
   }
 
   //Copy data from GPU to CPU
-  int* cpu_stackless = (int*) malloc(2*gpu_size_*sizeof(int));
-  cudaMemcpy(cpu_stackless, gpu_data_, 2*gpu_size_*sizeof(int), cudaMemcpyDeviceToHost);
+  unsigned int* cpu_stackless = (unsigned int*) malloc(2*gpu_size_*sizeof(unsigned int));
+  cudaMemcpy(cpu_stackless, gpu_data_, 2*gpu_size_*sizeof(unsigned int), cudaMemcpyDeviceToHost);
   cudaFree(gpu_data_);
 
   //Allocate children and fill them
@@ -127,7 +127,7 @@ int OctreeNode::totalChildren() const {
   return total;
 }
 
-int OctreeNode::addToLinearTree(int* octree, const int position, const int offset) {
+int OctreeNode::addToLinearTree(unsigned int* octree, const int position, const int offset) {
   int new_offset = offset;
 
   //Add this node's data
@@ -151,7 +151,7 @@ int OctreeNode::addToLinearTree(int* octree, const int position, const int offse
   return new_offset;
 }
 
-void OctreeNode::pullFromLinearTree(int* octree, const int position) {
+void OctreeNode::pullFromLinearTree(unsigned int* octree, const int position) {
   //If the has child flag is set, allocate children and recurse them
   if (octree[2 * position] & 0x40000000) {
     allocateChildren();
@@ -266,8 +266,28 @@ VoxelGrid Octree::occupiedVoxels() const {
   return grid;
 }
 
-void Octree::addCloud(const glm::vec3& origin, const glm::vec3* points, const Color256* colors, const int size) {
+void Octree::addCloud(const glm::vec3& origin, const glm::vec3* points, const Color256* colors, const int size, const BoundingBox& bbox) {
+  //TODO: Almost all of this is reused from addVoxelGrid. Refactor the API
 
+  //Compute the bounding box of the root
+  BoundingBox root_box;
+  root_box.bbox0 = center_ - glm::vec3(size_, size_, size_);
+  root_box.bbox1 = center_ + glm::vec3(size_, size_, size_);
+
+  //Get the node for this bounding box
+  glm::vec3 node_cent = center_;
+  int node_depth = 0;
+  OctreeNode* subtree = root_->getNodeContainingBoundingBox(bbox, root_box, node_depth, node_cent);
+
+  //Calculate the edge length and depth of this node
+  float edge_length = size_ / pow(2.0f, (float)node_depth);
+  int max_depth = ceil(log((float)(edge_length / resolution_)) / log(2.0f));
+
+  //Make sure the subtree is in GPU memory
+  subtree->pushToGPU();
+
+  //Add points
+  svo::svoFromPointCloud(points, colors, size, max_depth, subtree->gpu_data_, subtree->gpu_size_, node_cent, edge_length);
 }
 
 void Octree::addVoxelGrid(const VoxelGrid& grid) {
@@ -316,9 +336,9 @@ void Octree::extractVoxelGrid(VoxelGrid& grid) {
   svo::extractVoxelGridFromSVO(subtree->gpu_data_, subtree->gpu_size_, max_depth, node_cent, edge_length, grid);
 }
 
-void Octree::expandToSize(const float new_size) {
+void Octree::expandBySize(const float add_size) {
   //Determine how many additional layers will be needed
-  int add_layers = log((float) (new_size / size_)) / log(2.0f);
+  int add_layers = log(ceil((size_ + add_size) / size_)) / log(2.0f);
 
   //Don't continue if we're not adding at least 1 layer
   if (add_layers < 1) {
@@ -332,6 +352,13 @@ void Octree::expandToSize(const float new_size) {
 
   //Set the new size
   size_ = pow(2.0f, (float)add_layers) * size_;
+}
+
+BoundingBox Octree::boundingBox() const {
+  BoundingBox box;
+  box.bbox0 = center_ - glm::vec3(size_, size_, size_);
+  box.bbox1 = center_ + glm::vec3(size_, size_, size_);
+  return box;
 }
 
 } // namespace world

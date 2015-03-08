@@ -11,9 +11,11 @@ namespace octree_slam {
 
 namespace svo {
 
-extern "C" void svoFromVoxelGrid(const VoxelGrid& grid, const int max_depth, int* &d_octree, int& octree_size, glm::vec3 octree_center, const float edge_length, cudaArray* d_bricks = NULL);
+extern "C" void svoFromVoxelGrid(const VoxelGrid& grid, const int max_depth, unsigned int* &octree, int& octree_size, glm::vec3 octree_center, const float edge_length, cudaArray* d_bricks = NULL);
 
-extern "C" void extractVoxelGridFromSVO(int* &d_octree, int& octree_size, const int max_depth, const glm::vec3 center, float edge_length, VoxelGrid& grid);
+extern "C" void svoFromPointCloud(const glm::vec3* points, const Color256* colors, const int size, const int max_depth, unsigned int* &octree, int& octree_size, glm::vec3 octree_center, const float edge_length, cudaArray* d_bricks = NULL);
+
+extern "C" void extractVoxelGridFromSVO(unsigned int* &octree, int& octree_size, const int max_depth, const glm::vec3 center, float edge_length, VoxelGrid& grid);
 
 inline __host__ __device__ int oppositeNode(const int node) {
   //Returns the bitwise complement

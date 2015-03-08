@@ -12,9 +12,9 @@ namespace voxelization {
 
 const float CUBE_MESH_SCALE = 0.1f;
 
-//Declare voxelization resolution
-#define GRID_RES 8
-#define TILE_SIZE 3
+//Functions for accessing the Grid and Tile sizes on CPU and GPU
+__host__ __device__ int log_N();
+__host__ __device__ int log_T();
 
 extern "C" void voxelGridToMesh(const VoxelGrid& grid, const Mesh &m_cube, Mesh &m_out);
 

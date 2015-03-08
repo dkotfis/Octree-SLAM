@@ -25,28 +25,33 @@ int main(int argc, char** argv){
 	return 0;
 }
 
-
 void mainLoop() {
 	while(!glfwWindowShouldClose(window_)){
-    //Read a frame from OpenNI Device
-    if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
-      camera_device_->readFrame();
-      camera_estimation_->update(camera_device_->rawFrame());
-    }
+    //Read a frame from OpenNI Device and predict the camera's motion
+    camera_device_->readFrame();
+    //camera_estimation_->update(camera_device_->rawFrame());
 
+    //Transform the points and add to the octree
+    int num_points = camera_device_->rawFrame()->height*camera_device_->rawFrame()->width;
+    octree_slam::sensor::generateVertexMap(camera_device_->rawFrame()->depth, points_, camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength(), make_int2(camera_device_->frameWidth(), camera_device_->frameHeight()));
+    octree_slam::sensor::transformVertexMap(points_, glm::mat4(camera_estimation_->orientation()) * glm::translate(glm::mat4(1.0f), camera_estimation_->position()), camera_device_->frameWidth()*camera_device_->frameHeight());
+    cudaDeviceSynchronize();
+    BoundingBox cloud_bbox;
+    octree_slam::sensor::computePointCloudBoundingBox(points_, num_points, cloud_bbox);
+    scene_->addPointCloudToOctree(camera_estimation_->position(), points_, camera_device_->rawFrame()->color, num_points, cloud_bbox);
+
+    //Update the virtual camera based on keyboard/mouse input
     camera_->update();
 
+    //Render the appropriate data
 		if (USE_CUDA_RASTERIZER) {
       cuda_renderer_->rasterize(scene_->meshes()[0], scene_->textures()[0], camera_->camera(), lightpos_);
 		} else if (DRAW_CAMERA_COLOR) {
-      //Draw the current camera color frame to the window
       cuda_renderer_->pixelPassthrough(camera_device_->rawFrame()->color);
     } else if (DRAW_POINT_CLOUD) {
-      octree_slam::sensor::generateVertexMap(camera_device_->rawFrame()->depth, points_, camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength(), make_int2(camera_device_->frameWidth(), camera_device_->frameHeight()));
-      octree_slam::sensor::transformVertexMap(points_, glm::mat4(camera_estimation_->orientation()) * glm::translate(glm::mat4(1.0f), camera_estimation_->position()), camera_device_->frameWidth()*camera_device_->frameHeight());
-      cudaDeviceSynchronize();
       gl_renderer_->renderPoints(points_, camera_device_->rawFrame()->color, camera_device_->frameWidth()*camera_device_->frameHeight(), camera_->camera());
     } else if (VOXELIZE) {
+      scene_->extractVoxelGridFromOctree();
       gl_renderer_->rasterizeVoxels(scene_->voxel_grid(), camera_->camera(), lightpos_);
     } else {
       gl_renderer_->rasterize(scene_->meshes()[0], camera_->camera(), lightpos_);
@@ -88,18 +93,13 @@ bool init(int argc, char* argv[]) {
     data += "bunny_tex.obj";
 
   //Create scene
-  scene_ = new octree_slam::world::Scene(path_prefix);
+  scene_ = new octree_slam::world::Scene();
 
   //Load obj file
   scene_->loadObjFile(data);
 
   //Read texture
   scene_->loadBMP(path_prefix + std::string("../textures/texture1.bmp"));
-
-  //Voxelize the scene
-  if (VOXELIZE) {
-    scene_->voxelizeMeshes(OCTREE);
-  }
 
 	glfwSetErrorCallback(errorCallback);
 
@@ -124,11 +124,9 @@ bool init(int argc, char* argv[]) {
 	}
 
   //Initialize camera rendering
-  if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
-    camera_device_ = new octree_slam::sensor::OpenNIDevice();
-    camera_estimation_ = new octree_slam::sensor::RGBDCamera(camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength());
-    cudaMalloc((void**)&points_, camera_device_->frameWidth()*camera_device_->frameHeight()*sizeof(glm::vec3));
-  }
+  camera_device_ = new octree_slam::sensor::OpenNIDevice();
+  camera_estimation_ = new octree_slam::sensor::RGBDCamera(camera_device_->frameWidth(), camera_device_->frameHeight(), camera_device_->focalLength());
+  cudaMalloc((void**)&points_, camera_device_->frameWidth()*camera_device_->frameHeight()*sizeof(glm::vec3));
 
 	// Initialize renderers
 	if (USE_CUDA_RASTERIZER || DRAW_CAMERA_COLOR) {
@@ -143,9 +141,7 @@ bool init(int argc, char* argv[]) {
 }
 
 void shut_down(int return_code){
-  if (DRAW_CAMERA_COLOR || DRAW_POINT_CLOUD) {
-    cudaFree(points_);
-  }
+  cudaFree(points_);
 	cudaDeviceReset();
 #ifdef __APPLE__
 	glfwTerminate();

@@ -19,22 +19,28 @@ namespace svo {
 texture<float, 3> brick_tex;
 surface<void, 3> brick_surf;
 
-__host__ void initOctree(int* &d_octree) {
+__host__ void initOctree(unsigned int* &octree) {
   int oct[16];
   for (int i = 0; i < 16; i++) {
     oct[i] = 0;
   }
-  cudaMalloc((void**)&d_octree, 16*sizeof(int));
-  cudaMemcpy(d_octree, oct, 16*sizeof(int), cudaMemcpyHostToDevice);
+  cudaMalloc((void**)&octree, 16*sizeof(unsigned int));
+  cudaMemcpy(octree, oct, 16*sizeof(unsigned int), cudaMemcpyHostToDevice);
 }
 
-__device__ int computeKey(const glm::vec3& point, glm::vec3 center, const int tree_depth, float edge_length) {
+template <class T>
+__device__ int computeKey(const T& point, glm::vec3 center, const int tree_depth, float edge_length) {
   //TODO: This will break if tree_depth > 10 (would require >= 33 bits)
+
+  //Check for invalid
+  if (!isfinite(point.x) || !isfinite(point.z) || !isfinite(point.z)) {
+    return 1;
+  }
 
   //Initialize the output value
   int morton = 0;
 
-  for (size_t i = 0; i < tree_depth; i++) {
+  for (int i = 0; i < tree_depth; i++) {
     //Determine which octant the point lies in
     bool x = point.x > center.x;
     bool y = point.y > center.y;
@@ -58,17 +64,8 @@ __device__ int computeKey(const glm::vec3& point, glm::vec3 center, const int tr
   return morton;
 }
 
-__device__ void splitKey(const int code, const int depth, int& left, int& right) {
-  int p = pow(2.0f, 3.0f * (float)depth) - 1.0f;
-
-  //Take the lower bits into right
-  right = (code & p) + (1 << 3*depth);
-
-  //Take the upper bits into left
-  left = code >> 3*depth;
-}
-
-__global__ void computeKeys(const glm::vec4* voxels, const int numVoxels, const int max_depth, const glm::vec3 center, float edge_length, int* keys) {
+template <class T>
+__global__ void computeKeys(const T* voxels, const int numVoxels, const int max_depth, const glm::vec3 center, float edge_length, int* keys) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   //Don't do anything if its out of bounds
@@ -77,13 +74,13 @@ __global__ void computeKeys(const glm::vec4* voxels, const int numVoxels, const 
   }
 
   //Compute the full morton code
-  const int morton = computeKey(glm::vec3(voxels[index]), center, max_depth, edge_length);
+  const int morton = computeKey(voxels[index], center, max_depth, edge_length);
 
   //Fill in the key for the output
   keys[index] = morton;
 }
 
-__global__ void splitKeys(int* keys, const int numKeys, int* octree, int* left, int* right) {
+__global__ void splitKeys(int* keys, const int numKeys, unsigned int* octree, int* left, int* right) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   //Don't do anything if its out of bounds
@@ -91,28 +88,37 @@ __global__ void splitKeys(int* keys, const int numKeys, int* octree, int* left, 
     return;
   }
 
-  //Determine the existing depth from the current octree data
-  int depth = 1;
+  int l_key = keys[index];
+  int r_key = -1;
+  int temp_key = 0;
+
   int node_idx = 0;
-  int morton_temp = keys[index];
-  while (morton_temp > 1) {
-    //Get the child number from the bottom three bits of the morton code
-    node_idx += (morton_temp & 0x7);
-    morton_temp = morton_temp >> 3;
+  int depth = 0;
+
+  //Determine the existing depth from the current octree data
+  while (l_key >= 15) {
+    //Get the child number from the bottom three bits of the key
+    temp_key += (l_key & 0x7) << 3*depth;
+    node_idx += (l_key & 0x7);
 
     //Check the flag
     if (!(octree[2 * node_idx] & 0x40000000)) {
+      r_key = (1 << 3*(depth+1)) + temp_key;
       break;
     }
 
     //The lowest 30 bits are the address of the child nodes
     node_idx = octree[2 * node_idx] & 0x3FFFFFFF;
 
+    //Update the key
+    l_key = l_key >> 3;
+
     depth++;
   }
 
-  //Split the morton code at the depth
-  splitKey(keys[index], depth, left[index], right[index]);
+  //Fill in the results
+  left[index] = l_key;
+  right[index] = r_key;
 }
 
 __device__ int depthFromKey(int key) {
@@ -135,8 +141,8 @@ __global__ void leftToRightShift(int* left, int* right, const int numVoxels) {
     return;
   }
 
-  //Not valid if left is empty
-  if (left[index] == 1) {
+  //Not valid if left is empty or if right is already invalid
+  if (right[index] == -1 || left[index] == 1) {
     right[index] = -1;
     return;
   }
@@ -173,7 +179,7 @@ struct negative {
   }
 };
 
-__host__ int prepassCheckResize(int* keys, const int numVoxels, const int max_depth, int* d_octree, int** &d_codes, int* &code_sizes) {
+__host__ int prepassCheckResize(int* keys, const int numVoxels, const int max_depth, unsigned int* octree, int** &d_codes, int* &code_sizes) {
   int num_split_nodes = 0;
 
   //Allocate left and right morton code data
@@ -186,7 +192,7 @@ __host__ int prepassCheckResize(int* keys, const int numVoxels, const int max_de
   thrust::device_ptr<int> t_right = thrust::device_pointer_cast<int>(temp_right);
 
   //Split the set of existing codes and new codes (right/left)
-  splitKeys<<<ceil(float(numVoxels)/128.0f), 128>>>(keys, numVoxels, d_octree, d_left, d_right);
+  splitKeys<<<ceil(float(numVoxels)/128.0f), 128>>>(keys, numVoxels, octree, d_left, d_right);
   cudaDeviceSynchronize();
 
   //Allocate memory for output code data based on max_depth
@@ -194,16 +200,16 @@ __host__ int prepassCheckResize(int* keys, const int numVoxels, const int max_de
   code_sizes = (int*)malloc(max_depth*sizeof(int));
 
   //Loop over passes
-  for (size_t i = 0; i < max_depth; i++) {
+  for (int i = 0; i < max_depth; i++) {
     //Get a copy of the right codes so we can modify
-    cudaMemcpy(temp_right, d_right, numVoxels*sizeof(int), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(thrust::raw_pointer_cast(t_right), d_right, numVoxels*sizeof(int), cudaMemcpyDeviceToDevice);
 
     //Get the valid codes
     int size = thrust::remove_if(t_right, t_right + numVoxels, negative()) - t_right;
 
     //If there are no valid codes, we're done
     if (size == 0) {
-      for (size_t j = i; j < max_depth; j++) {
+      for (int j = i; j < max_depth; j++) {
         code_sizes[j] = 0;
       }
       break;
@@ -216,7 +222,7 @@ __host__ int prepassCheckResize(int* keys, const int numVoxels, const int max_de
     //Allocate output and copy the data into it
     code_sizes[i] = size;
     cudaMalloc((void**)&(d_codes[i]), size*sizeof(int));
-    cudaMemcpy(d_codes[i], temp_right, size*sizeof(int), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_codes[i], thrust::raw_pointer_cast(t_right), size*sizeof(int), cudaMemcpyDeviceToDevice);
 
     //Update the total number of nodes that are being split
     num_split_nodes += size;
@@ -233,7 +239,7 @@ __host__ int prepassCheckResize(int* keys, const int numVoxels, const int max_de
   return num_split_nodes;
 }
 
-__global__ void splitNodes(const int* keys, int numKeys, int* octree, int num_nodes) {
+__global__ void splitNodes(const int* keys, int numKeys, unsigned int* octree, int num_nodes) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   //Don't do anything if its out of bounds
@@ -243,6 +249,11 @@ __global__ void splitNodes(const int* keys, int numKeys, int* octree, int num_no
 
   //Get the key for this thread
   int key = keys[index];
+
+  //Don't do anything if its an empty key
+  if (key == 1) {
+    return;
+  }
 
   int node_idx = 0;
   int child_idx = 0;
@@ -268,20 +279,20 @@ __global__ void splitNodes(const int* keys, int numKeys, int* octree, int num_no
   }
 }
 
-__host__ void expandTreeAtKeys(int** d_keys, int* numKeys, const int depth, int* d_octree, int& num_nodes) {
+__host__ void expandTreeAtKeys(int** d_keys, int* numKeys, const int depth, unsigned int* octree, int& num_nodes) {
   for (size_t i = 0; i < depth; i++) {
     if (numKeys[i] == 0) {
       break;
     }
 
-    splitNodes<<<ceil((float)numKeys[i]/128.0f), 128>>>(d_keys[i], numKeys[i], d_octree, num_nodes);
+    splitNodes<<<ceil((float)numKeys[i]/128.0f), 128>>>(d_keys[i], numKeys[i], octree, num_nodes);
 
     num_nodes += 8 * numKeys[i];
     cudaDeviceSynchronize();
   }
 }
 
-__global__ void fillNodes(const int* keys, int numKeys, const glm::vec4* values, int* octree) {
+__global__ void fillNodes(const int* keys, int numKeys, const glm::vec4* values, unsigned int* octree) {
 
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -292,6 +303,11 @@ __global__ void fillNodes(const int* keys, int numKeys, const glm::vec4* values,
 
   //Get the key for this thread
   int key = keys[index];
+
+  //Check for invalid key
+  if (key == 1) {
+    return;
+  }
 
   int node_idx = 0;
   int child_idx = 0;
@@ -304,12 +320,48 @@ __global__ void fillNodes(const int* keys, int numKeys, const glm::vec4* values,
     child_idx = octree[2 * node_idx] & 0x3FFFFFFF;
   }
 
-  glm::vec4 scaled_value = values[index]*255.0f;
-  scaled_value.a = 127.0f;
-  octree[2 * node_idx + 1] = ((int)scaled_value.r) + ((int)scaled_value.g << 8) + ((int)scaled_value.b << 16) + ((int)scaled_value.a << 24);
+  glm::vec4 scaled_value = values[index] * 256.0f;
+  octree[2 * node_idx + 1] = ((int)scaled_value.r) + ((int)scaled_value.g << 8) + ((int)scaled_value.b << 16) + (255 << 24);
 }
 
-__global__ void averageChildren(int* keys, int numKeys, int* octree) {
+__global__ void fillNodes(const int* keys, int numKeys, const Color256* values, unsigned int* octree) {
+
+  int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+  //Don't do anything if its out of bounds
+  if (index >= numKeys) {
+    return;
+  }
+
+  //Get the key for this thread
+  int key = keys[index];
+
+  //Check for invalid key
+  if (key == 1) {
+    return;
+  }
+
+  int node_idx = 0;
+  int child_idx = 0;
+  while (key != 1) {
+    //Get the child number from the bottom three bits of the morton code
+    node_idx = child_idx + (key & 0x7);
+
+    if (!octree[2 * node_idx] & 0x40000000) {
+      return;
+    }
+
+    key = key >> 3;
+
+    //The lowest 30 bits are the address of the child nodes
+    child_idx = octree[2 * node_idx] & 0x3FFFFFFF;
+  }
+
+  Color256 scaled_value = values[index];
+  octree[2 * node_idx + 1] = ((int)scaled_value.r) + ((int)scaled_value.g << 8) + ((int)scaled_value.b << 16) + (255 << 24);
+}
+
+__global__ void averageChildren(int* keys, int numKeys, unsigned int* octree) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   //Don't do anything if its out of bounds
@@ -346,7 +398,7 @@ __global__ void averageChildren(int* keys, int numKeys, int* octree) {
   int num_occ = 0;
   for (int i = 0; i < 8; i++) {
     int child_val = octree[2*(child_idx+i) + 1];
-    if ((child_val >> 24) & 0x7F == 0) {
+    if ((child_val >> 24) & 0xFF == 0) {
       //Don't count in the average if its not occupied
       continue;
     }
@@ -354,7 +406,7 @@ __global__ void averageChildren(int* keys, int numKeys, int* octree) {
     val.g += (float) ((child_val >> 8) & 0xFF);
     val.b += (float) ((child_val >> 16) & 0xFF);
     //Assign the max albedo (avoids diluting it)
-    val.a = max(val.a,(float) ((child_val >> 24) & 0x7F));
+    val.a = max(val.a,(float) ((child_val >> 24) & 0xFF));
     num_occ++;
   }
 
@@ -377,7 +429,7 @@ struct depth_is_zero {
 };
 
 
-__host__ void mipmapNodes(int* keys, int numKeys, int* octree) {
+__host__ void mipmapNodes(int* keys, int numKeys, unsigned int* octree) {
 
   //Get a thrust pointer for the keys
   thrust::device_ptr<int> t_keys = thrust::device_pointer_cast<int>(keys);
@@ -422,7 +474,7 @@ __global__ void mipmapBricks(int* octree, int poolSize, int startNode, cudaArray
 }
 */
 
-__global__ void getOccupiedChildren(const int* d_octree, const int* parents, const int num_parents, int* children) {
+__global__ void getOccupiedChildren(const unsigned int* octree, const int* parents, const int num_parents, int* children) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
 
   //Don't do anything if its out of bounds
@@ -442,8 +494,8 @@ __global__ void getOccupiedChildren(const int* d_octree, const int* parents, con
   while (temp_key != 1) {
     //Get the next child
     pointer += temp_key & 0x7;
-    has_children = d_octree[2 * pointer] & 0x40000000;
-    pointer = d_octree[2 * pointer] & 0x3FFFFFFF;
+    has_children = octree[2 * pointer] & 0x40000000;
+    pointer = octree[2 * pointer] & 0x3FFFFFFF;
 
     //Update the key
     temp_key = temp_key >> 3;
@@ -454,8 +506,8 @@ __global__ void getOccupiedChildren(const int* d_octree, const int* parents, con
     int child_val = -1;
 
     if (has_children) {
-      int val2 = d_octree[2 * (pointer + i) + 1];
-      if (((val2 >> 24) & 0x7F) > 0) { //TODO: Should we threshold "occupied" at something other than 0?
+      unsigned int val2 = octree[2 * (pointer + i) + 1];
+      if (((val2 >> 24) & 0xFF) > 0) { //TODO: Should we threshold "occupied" at something other than 0?
         temp_key = key;
 
         //Compute the depth of the current key
@@ -474,7 +526,7 @@ __global__ void getOccupiedChildren(const int* d_octree, const int* parents, con
   }
 }
 
-__global__ void voxelGridFromKeys(int* octree, int* keys, int num_voxels, glm::vec3 center, float edge_length, glm::vec4* centers, glm::vec4* colors) {
+__global__ void voxelGridFromKeys(unsigned int* octree, int* keys, int num_voxels, glm::vec3 center, float edge_length, glm::vec4* centers, glm::vec4* colors) {
 
   //Get the index for the thread
   int idx = blockIdx.x*blockDim.x + threadIdx.x;
@@ -512,22 +564,22 @@ __global__ void voxelGridFromKeys(int* octree, int* keys, int num_voxels, glm::v
     center.z += edge_length * (z ? 1 : -1);
   }
 
-  int val = octree[2 * node_idx + 1];
+  unsigned int val = octree[2 * node_idx + 1];
 
   //Fill in the voxel
   centers[idx] = glm::vec4(center.x, center.y, center.z, 1.0f);
   colors[idx].r = ((float)(val & 0xFF) / 255.0f);
   colors[idx].g = ((float)((val >> 8) & 0xFF) / 255.0f);
   colors[idx].b = ((float)((val >> 16) & 0xFF) / 255.0f);
-  colors[idx].a = ((float)((val >> 24) & 0x7F) / 127.0f);
+  colors[idx].a = ((float)((val >> 24) & 0xFF) / 255.0f);
 
 }
 
-extern "C" void svoFromVoxelGrid(const VoxelGrid& grid, const int max_depth, int* &d_octree, int& octree_size, glm::vec3 octree_center, const float edge_length, cudaArray* d_bricks) {
+extern "C" void svoFromVoxelGrid(const VoxelGrid& grid, const int max_depth, unsigned int* &octree, int& octree_size, glm::vec3 octree_center, const float edge_length, cudaArray* d_bricks) {
 
   //Initialize the octree with a base set of empty nodes if its empty
   if (octree_size == 0) {
-    initOctree(d_octree);
+    initOctree(octree);
     octree_size = 8;
   }
 
@@ -536,46 +588,103 @@ extern "C" void svoFromVoxelGrid(const VoxelGrid& grid, const int max_depth, int
   cudaMalloc((void**)&d_keys, grid.size*sizeof(int));
 
   //Compute Keys
-  computeKeys<<<ceil((float)grid.size/256.0f), 256>>>(grid.centers, grid.size, max_depth, octree_center, edge_length, d_keys);
+  computeKeys<glm::vec4><<<ceil((float)grid.size/256.0f), 256>>>(grid.centers, grid.size, max_depth, octree_center, edge_length, d_keys);
   cudaDeviceSynchronize();
 
   //Determine how many new nodes are needed in the octree, and the keys to the nodes that need split in each pass
   int** d_codes = NULL;
   int* code_sizes = NULL;
-  int new_nodes = prepassCheckResize(d_keys, grid.size, max_depth, d_octree, d_codes, code_sizes);
+  int new_nodes = prepassCheckResize(d_keys, grid.size, max_depth, octree, d_codes, code_sizes);
 
   //Create a new octree with an updated size and copy over the old data. Free up the old copy when it is no longer needed
-  int* new_octree;
-  cudaMalloc((void**)&new_octree, 2 * (octree_size + 8*new_nodes) * sizeof(int));
-  cudaMemcpy(new_octree, d_octree, 2 * octree_size * sizeof(int), cudaMemcpyDeviceToDevice);
-  int* temp_octree = d_octree;
-  d_octree = new_octree;
-  cudaFree(temp_octree);
+  unsigned int* new_octree;
+  cudaMalloc((void**)&new_octree, 2 * (octree_size + 8*new_nodes) * sizeof(unsigned int));
+  cudaMemcpy(new_octree, octree, 2 * octree_size * sizeof(unsigned int), cudaMemcpyDeviceToDevice);
+  cudaFree(octree);
+  octree = new_octree;
 
   //Expand the tree now that the space has been allocated
-  expandTreeAtKeys(d_codes, code_sizes, max_depth, d_octree, octree_size);
+  expandTreeAtKeys(d_codes, code_sizes, max_depth, octree, octree_size);
 
   //Free up the codes now that we no longer need them
   for (size_t i = 0; i < max_depth; i++) {
-    cudaFree(d_codes[i]);
+    if (code_sizes[i] > 0) {
+      cudaFree(d_codes[i]);
+    }
   }
   free(d_codes);
   free(code_sizes);
 
   //Write voxel values into the lowest level of the svo
-  fillNodes<<<ceil((float)grid.size / 256.0f), 256>>>(d_keys, grid.size, grid.colors, d_octree);
+  fillNodes<<<ceil((float)grid.size / 256.0f), 256>>>(d_keys, grid.size, grid.colors, octree);
   cudaDeviceSynchronize();
   //TODO: Handle duplicate keys
 
   //Mip-mapping (currently only without use of the brick pool)
-  mipmapNodes(d_keys, grid.size, d_octree);
+  mipmapNodes(d_keys, grid.size, octree);
+  cudaDeviceSynchronize();
+
+  //Free up the keys since they are no longer needed
+  cudaFree(d_keys);
+
+}
+
+extern "C" void svoFromPointCloud(const glm::vec3* points, const Color256* colors, const int size, const int max_depth, unsigned int* &octree, int& octree_size, glm::vec3 octree_center, const float edge_length, cudaArray* d_bricks) {
+  //TODO: This duplicates alot from the VoxelGrid function. Refactor the API to be more efficient
+
+  //Initialize the octree with a base set of empty nodes if its empty
+  if (octree_size == 0) {
+    initOctree(octree);
+    octree_size = 8;
+  }
+
+  //Allocate space for octree keys for each input
+  int* d_keys;
+  cudaMalloc((void**)&d_keys, size*sizeof(int));
+
+  //Compute Keys
+  computeKeys<glm::vec3><<<ceil((float)size / 256.0f), 256>>>(points, size, max_depth, octree_center, edge_length, d_keys);
+  cudaDeviceSynchronize();
+
+  //Determine how many new nodes are needed in the octree, and the keys to the nodes that need split in each pass
+  int** d_codes = NULL;
+  int* code_sizes = NULL;
+  int new_nodes = prepassCheckResize(d_keys, size, max_depth, octree, d_codes, code_sizes);
+
+  //Create a new octree with an updated size and copy over the old data. Free up the old copy when it is no longer needed
+  unsigned int* new_octree;
+  cudaMalloc((void**)&new_octree, 2 * (octree_size + 8 * new_nodes) * sizeof(unsigned int));
+  cudaMemcpy(new_octree, octree, 2 * octree_size * sizeof(unsigned int), cudaMemcpyDeviceToDevice);
+  cudaFree(octree);
+  octree = new_octree;
+
+  //Expand the tree now that the space has been allocated
+  expandTreeAtKeys(d_codes, code_sizes, max_depth, octree, octree_size);
+
+  //Free up the codes now that we no longer need them
+  for (size_t i = 0; i < max_depth; i++) {
+    if (code_sizes[i] > 0) {
+      cudaFree(d_codes[i]);
+    }
+  }
+  free(d_codes);
+  free(code_sizes);
+
+  //Write voxel values into the lowest level of the svo
+  fillNodes<<<ceil((float)size / 256.0f), 256>>>(d_keys, size, colors, octree);
+  cudaDeviceSynchronize();
+  //TODO: Handle duplicate keys
+
+  //Mip-mapping (currently only without use of the brick pool)
+  mipmapNodes(d_keys, size, octree);
   cudaDeviceSynchronize();
 
   //Free up the keys since they are no longer needed
   cudaFree(d_keys);
 }
 
-extern "C" void extractVoxelGridFromSVO(int* &d_octree, int& octree_size, const int max_depth, const glm::vec3 center, float edge_length, VoxelGrid& grid) {
+
+extern "C" void extractVoxelGridFromSVO(unsigned int* &octree, int& octree_size, const int max_depth, const glm::vec3 center, float edge_length, VoxelGrid& grid) {
 
   //Loop through each pass until max_depth, and determine the number of nodes at the highest resolution, along with morton codes for them
   int num_voxels = 1;
@@ -592,7 +701,7 @@ extern "C" void extractVoxelGridFromSVO(int* &d_octree, int& octree_size, const 
     cudaMalloc((void**)&new_nodes, 8*num_voxels*sizeof(int));
 
     //Run kernel on all of the keys (x8)
-    getOccupiedChildren<<<ceil((float)num_voxels/256.0f), 256>>>(d_octree, node_list, num_voxels, new_nodes);
+    getOccupiedChildren<<<ceil((float)num_voxels/256.0f), 256>>>(octree, node_list, num_voxels, new_nodes);
     cudaDeviceSynchronize();
 
     //Thrust remove-if to get the set of keys for the next pass
@@ -612,7 +721,7 @@ extern "C" void extractVoxelGridFromSVO(int* &d_octree, int& octree_size, const 
   cudaMalloc((void**)&grid.colors, num_voxels*sizeof(glm::vec4));
 
   //Extract the data into the grid
-  voxelGridFromKeys<<<ceil((float)num_voxels / 256.0f), 256>>>(d_octree, node_list, num_voxels, center, edge_length, grid.centers, grid.colors);
+  voxelGridFromKeys<<<ceil((float)num_voxels / 256.0f), 256>>>(octree, node_list, num_voxels, center, edge_length, grid.centers, grid.colors);
   cudaDeviceSynchronize();
 
   //Free up memory

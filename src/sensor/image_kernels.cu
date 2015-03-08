@@ -5,6 +5,10 @@
 // CUDA / OpenGL Dependencies
 #include <cuda_gl_interop.h>
 
+// Thrust Dependencies
+#include <thrust/reduce.h>
+#include <thrust/device_ptr.h>
+
 namespace octree_slam {
 
 namespace sensor {
@@ -31,7 +35,12 @@ __global__ void generateVertexMapKernel(const uint16_t* depth_pixels, glm::vec3*
 
   //Get the depth value for this pixel from global memory once
   int depth = depth_pixels[idx];
-  //TODO: Handle no-measurements
+
+  //Handle no-measurements
+  if (depth == 0 || depth > 15000) {
+    vertex_map[idx] = glm::vec3(INFINITY, INFINITY, INFINITY);
+    return;
+  }
 
   //Conversion from millimeters to meters
   const float milli = 0.001f;
@@ -46,6 +55,50 @@ __global__ void generateVertexMapKernel(const uint16_t* depth_pixels, glm::vec3*
 extern "C" void generateVertexMap(const uint16_t* depth_pixels, glm::vec3* vertex_map, const int width, const int height, const glm::vec2 focal_length, const int2 img_size) {
   generateVertexMapKernel<<<ceil((float)width * (float)height / 256.0f), 256>>>(depth_pixels, vertex_map, width, height, focal_length, img_size);
   cudaDeviceSynchronize();
+}
+
+struct min_vec3 : public thrust::binary_function<glm::vec3, glm::vec3, glm::vec3>{
+  __host__ __device__ glm::vec3 operator() (const glm::vec3& lhs, const glm::vec3& rhs) {
+    glm::vec3 result;
+
+    if (lhs == glm::vec3(0.0f)) {
+      result = rhs;
+    } else if (!isfinite(rhs.x) || !isfinite(rhs.z) || !isfinite(rhs.z)) {
+      result = lhs;
+    } else {
+      result.x = min(rhs.x, lhs.x);
+      result.y = min(rhs.y, lhs.y);
+      result.z = min(rhs.z, lhs.z);
+    }
+
+    return result;
+  }
+};
+
+struct max_vec3 : public thrust::binary_function<glm::vec3, glm::vec3, glm::vec3>{
+  __host__ __device__ glm::vec3 operator() (const glm::vec3& lhs, const glm::vec3& rhs) {
+    glm::vec3 result;
+
+    if (lhs == glm::vec3(0.0f)) {
+      result = rhs;
+    } else if (!isfinite(rhs.x) || !isfinite(rhs.z) || !isfinite(rhs.z)) {
+      result = lhs;
+    } else {
+      result.x = max(rhs.x, lhs.x);
+      result.y = max(rhs.y, lhs.y);
+      result.z = max(rhs.z, lhs.z);
+    }
+
+    return result;
+  }
+};
+
+extern "C" void computePointCloudBoundingBox(glm::vec3* points, const int num_points, BoundingBox& bbox) {
+  //Use thrust max/min to get the bounding box
+  thrust::device_ptr<glm::vec3> t_pts = thrust::device_pointer_cast<glm::vec3>(points);
+  bbox.bbox0 = thrust::reduce(t_pts, t_pts + num_points, bbox.bbox0, min_vec3());
+  bbox.bbox1 = thrust::reduce(t_pts, t_pts + num_points, bbox.bbox1, max_vec3());
+
 }
 
 __global__ void generateNormalMapKernel(const glm::vec3* vertex_map, glm::vec3* normal_map, const int width, const int height) {

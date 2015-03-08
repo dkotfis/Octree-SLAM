@@ -22,7 +22,7 @@ class Scene {
 
 public:
 
-  Scene(const std::string& path_prefix);
+  Scene();
 
   ~Scene();
 
@@ -30,7 +30,14 @@ public:
 
   void loadBMP(const std::string& filename);
 
+  //Function to take the meshes in the scene and voxelize them (optionally adding the voxels to the octree)
   void voxelizeMeshes(const bool octree = false);
+
+  //Function to extract a voxel grid from the octree data
+  void extractVoxelGridFromOctree();
+
+  //Function for adding a point cloud to the octree
+  void addPointCloudToOctree(const glm::vec3& origin, const glm::vec3* points, const Color256* colors, const int size, const BoundingBox& bbox);
 
   //Accessor method for meshes
   const std::vector<Mesh>& meshes() const { return meshes_; };
@@ -39,7 +46,7 @@ public:
   const std::vector<bmp_texture>& textures() const { return textures_; };
 
   //Accessor method for voxel grid
-  const VoxelGrid& voxel_grid() const { return voxel_grid_; };
+  const VoxelGrid& voxel_grid() const { return *voxel_grid_; };
 
 private:
 
@@ -53,10 +60,7 @@ private:
   std::vector<bmp_texture> textures_;
 
   //A voxel grid representing the scene
-  VoxelGrid voxel_grid_;
-
-  //A mesh for a single cube
-  Mesh cube_;
+  VoxelGrid* voxel_grid_;
 
   //The bounding box of the scene
   float bbox_[6];

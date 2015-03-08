@@ -6,8 +6,14 @@
 #include <vector_types.h>
 
 struct BoundingBox {
-  glm::vec3 bbox0;
-  glm::vec3 bbox1;
+  glm::vec3 bbox0 = glm::vec3(0.0f);
+  glm::vec3 bbox1 = glm::vec3(0.0f);
+
+  //Checks whether a bounding box contains the other
+  bool contains(const BoundingBox& other) const;
+
+  //Gets the max distance that a bounding box sits outside the other (in a single dimension)
+  float distanceOutside(const BoundingBox& other) const;
 };
 
 //This is a lighter weight version of obj
@@ -50,8 +56,8 @@ struct VoxelGrid {
   void setBoundingBox(const float3& b0, const float3& b1);
   glm::vec4* centers;
   glm::vec4* colors;
-  int size;
-  float scale;
+  int size = 0;
+  float scale = 0.0f;
   BoundingBox bbox;
 };
 

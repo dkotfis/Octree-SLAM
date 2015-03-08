@@ -20,6 +20,9 @@ namespace sensor {
 //Generates a vertex map from a depth image
 extern "C" void generateVertexMap(const uint16_t* depth_pixels, glm::vec3* vertex_map, const int width, const int height, const glm::vec2 focal_length, const int2 img_size);
 
+//Generates a vertex map with a bounding box from a depth image
+extern "C" void computePointCloudBoundingBox(glm::vec3* points, const int num_points, BoundingBox& bbox);
+
 //Generates a normal map from a vertex map
 extern "C" void generateNormalMap(const glm::vec3* vertex_map, glm::vec3* normal_map, const int width, const int height);
 

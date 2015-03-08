@@ -20,6 +20,10 @@ namespace octree_slam {
 
 namespace voxelization {
 
+//Declare voxelization resolution
+#define GRID_RES 8
+#define TILE_SIZE 3
+
 __host__ __device__ int log_N() {
   return GRID_RES;
 }

@@ -10,13 +10,9 @@ namespace octree_slam {
 
 namespace world {
 
-Scene::Scene(const std::string& path_prefix) : 
-tree_(NULL) {
-  obj* o = new obj();
-  objLoader loader(path_prefix + "../objs/cube.obj", o);
-  o->buildVBOs();
-  cube_ = objToMesh(o);
-  delete o;
+Scene::Scene() : 
+tree_(NULL),
+voxel_grid_(new VoxelGrid()) {
   for (int i = 0; i < 6; i++) {
     bbox_[i] = 0.0f;
   }
@@ -73,20 +69,48 @@ void Scene::voxelizeMeshes(const bool octree) {
   }
 
   if (!octree) {
-    voxelization::meshToVoxelGrid(meshes_[0], &textures_[0], voxel_grid_);
-    voxel_grid_.scale = meshes_[0].bbox.bbox1.x / (1 << GRID_RES);
+    voxelization::meshToVoxelGrid(meshes_[0], &textures_[0], *voxel_grid_);
+    voxel_grid_->scale = meshes_[0].bbox.bbox1.x / (1 << voxelization::log_N());
   } else {
     VoxelGrid grid;
     voxelization::meshToVoxelGrid(meshes_[0], &textures_[0], grid);
-    voxel_grid_.scale = meshes_[0].bbox.bbox1.x / (1 << GRID_RES);
+    voxel_grid_->scale = meshes_[0].bbox.bbox1.x / (1 << voxelization::log_N());
     if (!tree_) {
-      tree_ = new Octree(voxel_grid_.scale, (meshes_[0].bbox.bbox1 + meshes_[0].bbox.bbox0) / 2.0f, meshes_[0].bbox.bbox1.x);
+      tree_ = new Octree(voxel_grid_->scale, (meshes_[0].bbox.bbox1 + meshes_[0].bbox.bbox0) / 2.0f, meshes_[0].bbox.bbox1.x);
     }
     tree_->addVoxelGrid(grid);
-    voxel_grid_.bbox = meshes_[0].bbox;
-    voxel_grid_.scale *= (float) 1; //Use this to render higher levels in the octree
-    tree_->extractVoxelGrid(voxel_grid_);
+    voxel_grid_->bbox = tree_->boundingBox();
+    voxel_grid_->scale *= (float) 1; //Use this to render higher levels in the octree
+    tree_->extractVoxelGrid(*voxel_grid_);
   }
+}
+
+void Scene::extractVoxelGridFromOctree() {
+  //Clean up the current voxel grid
+  delete voxel_grid_;
+  voxel_grid_ = new VoxelGrid();
+
+  //TODO: Take in a "resolution" parameter for the extraction process
+  voxel_grid_->bbox = tree_->boundingBox();
+  voxel_grid_->scale = 0.0125f;
+  tree_->extractVoxelGrid(*voxel_grid_);
+}
+
+void Scene::addPointCloudToOctree(const glm::vec3& origin, const glm::vec3* points, const Color256* colors, const int size, const BoundingBox& bbox) {
+  //Create the octree if needed
+  if (!tree_) {
+    tree_ = new Octree(0.0125f, (bbox.bbox1 + bbox.bbox0) / 2.0f, bbox.bbox1.x);
+
+  //Expand the octree if needed
+  } else if (!tree_->boundingBox().contains(bbox)) {
+    //Determine the necessary expansion size of the octree and expand it
+    float new_size = bbox.distanceOutside(tree_->boundingBox());
+    tree_->expandBySize(new_size);
+  }
+
+  //Add the points to the octree
+  tree_->addCloud(origin, points, colors, size, bbox);
+
 }
 
 Mesh Scene::objToMesh(obj* object) {

@@ -37,10 +37,10 @@ private:
   int totalChildren() const;
 
   //Recursively adds data to a stackless octree structure
-  int addToLinearTree(int* octree, const int position, const int offset);
+  int addToLinearTree(unsigned int* octree, const int position, const int offset);
 
   //Recursively pulls data from a stackless octree structure into a set of child nodes
-  void pullFromLinearTree(int* octree, const int position);
+  void pullFromLinearTree(unsigned int* octree, const int position);
 
   //Allocates children on CPU
   void allocateChildren();
@@ -64,7 +64,7 @@ private:
   bool on_gpu_;
 
   //Pointer to gpu data, if the node is GPU backed
-  int* gpu_data_;
+  unsigned int* gpu_data_;
 
   //The number of children on the GPU
   int gpu_size_;
@@ -73,7 +73,7 @@ private:
   OctreeNode* children_[8];
 
   //Data in the node if it is CPU backed
-  int data_;
+  unsigned int data_;
 
 }; // class OctreeNode
 
@@ -90,7 +90,7 @@ public:
   VoxelGrid occupiedVoxels() const;
 
   //Adds an observed point cloud
-  void addCloud(const glm::vec3& origin, const glm::vec3* points, const Color256* colors, const int size);
+  void addCloud(const glm::vec3& origin, const glm::vec3* points, const Color256* colors, const int size, const BoundingBox& bbox);
 
   //Adds a voxelized mesh
   void addVoxelGrid(const VoxelGrid& grid);
@@ -98,10 +98,13 @@ public:
   //Extracts a voxel grid from the octree at max resolution, inside the bounding box of the input grid
   void extractVoxelGrid(VoxelGrid& grid);
 
-private:
+  //Get the bounding box of the octree
+  BoundingBox boundingBox() const;
 
   //Expands the tree to a new size, keeping the current center
-  void expandToSize(const float new_size);
+  void expandBySize(const float new_size);
+
+private:
 
   //Root node of the tree
   OctreeNode* root_;

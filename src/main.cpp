@@ -2,6 +2,9 @@
 #include <octree_slam/main.h>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <ctime>
+#include <iostream>
+
 std::string path_prefix = "../../";
 
 int main(int argc, char** argv){
@@ -79,6 +82,7 @@ void mainLoop() {
 
 bool init(int argc, char* argv[]) {
 
+  /*
   int choice = 2;
   std::cout << "Please enter which scene to load? '1'(dragon), '2'(cow), '3'(bunny)." << std::endl;
   std::cin >> choice;
@@ -91,15 +95,16 @@ bool init(int argc, char* argv[]) {
     data += "cow_tex.obj";
   else if (choice == 3)
     data += "bunny_tex.obj";
-
+  */
   //Create scene
   scene_ = new octree_slam::world::Scene();
 
   //Load obj file
-  scene_->loadObjFile(data);
+  //scene_->loadObjFile(data);
 
   //Read texture
-  scene_->loadBMP(path_prefix + std::string("../textures/texture1.bmp"));
+  //scene_->loadBMP(path_prefix + std::string("../textures/texture1.bmp"));
+  
 
 	glfwSetErrorCallback(errorCallback);
 

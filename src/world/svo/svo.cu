@@ -275,7 +275,7 @@ __global__ void splitNodes(const int* keys, int numKeys, unsigned int* octree, i
   //Initialize new child nodes to 0's
   for (int off = 0; off < 8; off++) {
     octree[2 * (newNode + off)] = 0;
-    octree[2 * (newNode + off) + 1] = 0;
+    octree[2 * (newNode + off) + 1] = 127 << 24;
   }
 }
 
@@ -320,8 +320,21 @@ __global__ void fillNodes(const int* keys, int numKeys, const glm::vec4* values,
     child_idx = octree[2 * node_idx] & 0x3FFFFFFF;
   }
 
-  glm::vec4 scaled_value = values[index] * 256.0f;
-  octree[2 * node_idx + 1] = ((int)scaled_value.r) + ((int)scaled_value.g << 8) + ((int)scaled_value.b << 16) + (255 << 24);
+  glm::vec4 new_value = values[index] * 256.0f;
+  unsigned int current_value = octree[2 * node_idx + 1];
+
+  int current_alpha = current_value >> 24;
+  int current_r = current_value & 0xFF;
+  int current_g = (current_value >> 8) & 0xFF;
+  int current_b = (current_value >> 16) & 0xFF;
+
+  //Implement a pseudo low-pass filter with laplace smoothing
+  float f1 = 1 - ((float)current_alpha / 256.0f);
+  float f2 = (float)current_alpha / 256.0f;
+  new_value.r = new_value.r * f1 + current_r * f2;
+  new_value.g = new_value.g * f1 + current_g * f2;
+  new_value.b = new_value.b * f1 + current_b * f2;
+  octree[2 * node_idx + 1] = ((int)new_value.r) + ((int)new_value.g << 8) + ((int)new_value.b << 16) + (min(255, current_alpha + 2) << 24);
 }
 
 __global__ void fillNodes(const int* keys, int numKeys, const Color256* values, unsigned int* octree) {
@@ -357,8 +370,22 @@ __global__ void fillNodes(const int* keys, int numKeys, const Color256* values, 
     child_idx = octree[2 * node_idx] & 0x3FFFFFFF;
   }
 
-  Color256 scaled_value = values[index];
-  octree[2 * node_idx + 1] = ((int)scaled_value.r) + ((int)scaled_value.g << 8) + ((int)scaled_value.b << 16) + (255 << 24);
+  Color256 new_value = values[index];
+  unsigned int current_value = octree[2 * node_idx + 1];
+
+  Color256 current;
+  short current_alpha = current_value >> 24;
+  current.r = current_value & 0xFF;
+  current.g = (current_value >> 8) & 0xFF;
+  current.b = (current_value >> 16) & 0xFF;
+
+  //Implement a pseudo low-pass filter with laplace smoothing
+  float f1 = (1 - ((float)current_alpha/256.0f));
+  float f2 = (float)current_alpha / 256.0f;
+  new_value.r = new_value.r * f1 + current.r * f2;
+  new_value.g = new_value.g * f1 + current.g * f2;
+  new_value.b = new_value.b * f1 + current.b * f2;
+  octree[2 * node_idx + 1] = ((int)new_value.r) + ((int)new_value.g << 8) + ((int)new_value.b << 16) + (min(255, current_alpha + 2) << 24);
 }
 
 __global__ void averageChildren(int* keys, int numKeys, unsigned int* octree) {
@@ -436,6 +463,9 @@ __host__ void mipmapNodes(int* keys, int numKeys, unsigned int* octree) {
 
   //Check if any keys still have children
   while ((numKeys = thrust::remove_if(t_keys, t_keys + numKeys, depth_is_zero()) - t_keys) > 0) {
+    //thrust::sort(t_keys, t_keys + numKeys);
+    //numKeys = thrust::unique(t_keys, t_keys + numKeys) - t_keys;
+
     //Average the children at the given set of keys
     averageChildren<<<ceil((float)numKeys / 32.0f), 32>>>(keys, numKeys, octree);
     cudaDeviceSynchronize();
@@ -507,7 +537,7 @@ __global__ void getOccupiedChildren(const unsigned int* octree, const int* paren
 
     if (has_children) {
       unsigned int val2 = octree[2 * (pointer + i) + 1];
-      if (((val2 >> 24) & 0xFF) > 0) { //TODO: Should we threshold "occupied" at something other than 0?
+      if (((val2 >> 24) & 0xFF) > 127) { //TODO: Should we threshold "occupied" at something other than 0?
         temp_key = key;
 
         //Compute the depth of the current key
@@ -637,7 +667,6 @@ extern "C" void svoFromPointCloud(const glm::vec3* points, const Color256* color
     initOctree(octree);
     octree_size = 8;
   }
-
   //Allocate space for octree keys for each input
   int* d_keys;
   cudaMalloc((void**)&d_keys, size*sizeof(int));
@@ -660,7 +689,6 @@ extern "C" void svoFromPointCloud(const glm::vec3* points, const Color256* color
 
   //Expand the tree now that the space has been allocated
   expandTreeAtKeys(d_codes, code_sizes, max_depth, octree, octree_size);
-
   //Free up the codes now that we no longer need them
   for (size_t i = 0; i < max_depth; i++) {
     if (code_sizes[i] > 0) {

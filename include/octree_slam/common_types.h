@@ -43,6 +43,7 @@ struct Camera {
   glm::mat4 projection;
   glm::mat4 modelview;
   glm::mat4 mvp;
+  float fov;
 };
 
 struct Color256 {
@@ -69,6 +70,12 @@ struct RawFrame {
   int height;
   int width;
   long long timestamp;
+};
+
+struct SVO {
+  unsigned int* data;
+  glm::vec3 center;
+  float size;
 };
 
 #endif //SCENE_STRUCTS_H_

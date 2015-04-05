@@ -4,7 +4,6 @@
 // Octree-SLAM Dependency
 #include <octree_slam/world/scene.h>
 #include <octree_slam/world/voxelization/voxelization.h>
-#include <octree_slam/world/octree.h>
 
 namespace octree_slam {
 

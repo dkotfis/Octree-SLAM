@@ -98,6 +98,9 @@ public:
   //Extracts a voxel grid from the octree at max resolution, inside the bounding box of the input grid
   void extractVoxelGrid(VoxelGrid& grid);
 
+  //Extracts a GPU sub-svo for the given bounding box
+  SVO extractSVO(const BoundingBox& bbox);
+
   //Get the bounding box of the octree
   BoundingBox boundingBox() const;
 

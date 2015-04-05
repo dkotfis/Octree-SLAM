@@ -28,8 +28,8 @@
 #define DRAW_CAMERA_COLOR 0
 #define DRAW_POINT_CLOUD 0
 #define USE_CUDA_RASTERIZER 0
-#define VOXELIZE 1
-#define OCTREE 0
+#define CONE_TRACING 0
+#define OCTREE 1
 
 //-------------------------------
 //----------GLOBAL STUFF-----------

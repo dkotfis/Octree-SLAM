@@ -336,6 +336,29 @@ void Octree::extractVoxelGrid(VoxelGrid& grid) {
   svo::extractVoxelGridFromSVO(subtree->gpu_data_, subtree->gpu_size_, max_depth, node_cent, edge_length, grid);
 }
 
+SVO Octree::extractSVO(const BoundingBox& bbox) {
+  //Compute the bounding box of the root
+  BoundingBox root_box;
+  root_box.bbox0 = center_ - glm::vec3(size_, size_, size_);
+  root_box.bbox1 = center_ + glm::vec3(size_, size_, size_);
+
+  //Get the node for this bounding box
+  glm::vec3 node_cent = center_;
+  int node_depth = 0;
+  OctreeNode* subtree = root_->getNodeContainingBoundingBox(bbox, root_box, node_depth, node_cent);
+
+  //Make sure the subtree is in GPU memory
+  subtree->pushToGPU();
+
+  //Contruct the result
+  SVO octree;
+  octree.data = subtree->gpu_data_;
+  octree.center = node_cent;
+  octree.size = size_ / (float)pow(2, node_depth);
+
+  return octree;
+}
+
 void Octree::expandBySize(const float add_size) {
   //Determine how many additional layers will be needed
   int add_layers = log(ceil((size_ + add_size) / size_)) / log(2.0f);

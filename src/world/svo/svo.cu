@@ -448,7 +448,7 @@ struct depth_is_zero {
 
 
 __host__ void mipmapNodes(octkey* keys, int numKeys, unsigned int* octree) {
-  startTiming();
+
   //Get a thrust pointer for the keys
   thrust::device_ptr<octkey> t_keys = thrust::device_pointer_cast<octkey>(keys);
 
@@ -461,7 +461,7 @@ __host__ void mipmapNodes(octkey* keys, int numKeys, unsigned int* octree) {
     averageChildren<<<ceil((float)numKeys / 64.0f), 64>>>(keys, numKeys, octree);
     cudaDeviceSynchronize();
   }
-  std::cout << "Took: " << stopTiming() << std::endl;
+
 }
 
 /*

@@ -14,8 +14,8 @@ float GLFWCameraController::FoV_ = 60.0f;
 bool GLFWCameraController::LB_ = false;
 
 GLFWCameraController::GLFWCameraController(GLFWwindow *window, const int width, const int height) :
-  position_(0.0f, 0.0f, 3.0f), 
-  horizontalAngle_(3.14f), 
+  position_(0.0f, 0.0f, 0.0f), 
+  horizontalAngle_(0.0f), 
   verticalAngle_(0.0f), 
   zNear_(0.001f), 
   zFar_(10000.0f), 
@@ -84,6 +84,7 @@ void GLFWCameraController::update() {
   camera_.projection = glm::perspective(FoV_, (float)(width_) / (float)(height_), zNear_, zFar_);
   camera_.modelview = camera_.view * camera_.model;
   camera_.mvp = camera_.projection*camera_.modelview;
+  camera_.fov = FoV_;
 
 }
 

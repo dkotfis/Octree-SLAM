@@ -10,6 +10,7 @@
 
 // Octree-SLAM Dependencies
 #include <octree_slam/common_types.h>
+#include <octree_slam/world/octree.h>
 
 namespace octree_slam {
 
@@ -47,6 +48,9 @@ public:
 
   //Accessor method for voxel grid
   const VoxelGrid& voxel_grid() const { return *voxel_grid_; };
+
+  //Accessor method for svo
+  SVO svo(const BoundingBox& bbox) const { return tree_->extractSVO(bbox); };
 
 private:
 

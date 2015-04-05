@@ -23,6 +23,8 @@ public:
 
   void pixelPassthrough(const Color256* pixel_colors);
 
+  void coneTraceSVO(const SVO& octree, const Camera& camera, const glm::vec3& light);
+
 private:
 
   static float newcbo_[9];

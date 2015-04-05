@@ -53,7 +53,10 @@ void mainLoop() {
       cuda_renderer_->pixelPassthrough(camera_device_->rawFrame()->color);
     } else if (DRAW_POINT_CLOUD) {
       gl_renderer_->renderPoints(points_, camera_device_->rawFrame()->color, camera_device_->frameWidth()*camera_device_->frameHeight(), camera_->camera());
-    } else if (VOXELIZE) {
+    } else if (CONE_TRACING) {
+      BoundingBox render_volume = cloud_bbox; //TODO: compute this properly using the camera position
+      cuda_renderer_->coneTraceSVO(scene_->svo(render_volume), camera_->camera(), lightpos_);
+    } else if (OCTREE) {
       scene_->extractVoxelGridFromOctree();
       gl_renderer_->rasterizeVoxels(scene_->voxel_grid(), camera_->camera(), lightpos_);
     } else {
@@ -134,10 +137,10 @@ bool init(int argc, char* argv[]) {
   cudaMalloc((void**)&points_, camera_device_->frameWidth()*camera_device_->frameHeight()*sizeof(glm::vec3));
 
 	// Initialize renderers
-	if (USE_CUDA_RASTERIZER || DRAW_CAMERA_COLOR) {
+	if (USE_CUDA_RASTERIZER || DRAW_CAMERA_COLOR || CONE_TRACING) {
     int width = DRAW_CAMERA_COLOR ? camera_device_->frameWidth() : width_;
     int height = DRAW_CAMERA_COLOR ? camera_device_->frameHeight() : height_;
-    cuda_renderer_ = new octree_slam::rendering::CUDARenderer(VOXELIZE, path_prefix, width, height);
+    cuda_renderer_ = new octree_slam::rendering::CUDARenderer(OCTREE, path_prefix, width, height);
 	} else if (DRAW_POINT_CLOUD || (!USE_CUDA_RASTERIZER && !DRAW_CAMERA_COLOR)) {
     gl_renderer_ = new octree_slam::rendering::OpenGLRenderer(path_prefix);
 	}

@@ -13,6 +13,7 @@
 // Octree-SLAM Dependency
 #include <octree_slam/rendering/cuda_renderer.h>
 #include <octree_slam/rendering/rasterize_kernels.h>
+#include <octree_slam/rendering/cone_tracing_kernels.h>
 
 namespace octree_slam {
 
@@ -152,6 +153,21 @@ void CUDARenderer::pixelPassthrough(const Color256* pixel_colors) {
   glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
 
   frame_++;
+}
+
+void CUDARenderer::coneTraceSVO(const SVO& octree, const Camera& camera, const glm::vec3& light) {
+  uchar4 *dptr = NULL;
+  std::vector<glm::vec4>* texcoord = NULL;
+
+  cudaGLMapBufferObject((void**)&dptr, pbo_);
+  octree_slam::rendering::coneTraceSVO(dptr, glm::vec2(width_, height_), camera.fov, camera.view, octree);
+  cudaGLUnmapBufferObject(pbo_);
+
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo_);
+  glBindTexture(GL_TEXTURE_2D, displayImage_);
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+  glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
 }
 
 } // namespace rendering

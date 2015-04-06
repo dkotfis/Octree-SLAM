@@ -20,17 +20,17 @@ namespace octree_slam {
 namespace rendering {
 
 //The maximum distance that we can see
-const float MAX_RANGE = 10.0f;
+__device__ const float MAX_RANGE = 10.0f;
 
 //The starting distance from the origin to start the ray marching from
-const float START_DIST = 0.2f;
+__device__ const float START_DIST = 0.02f;
 
 __global__ void createRays(glm::vec2 resolution, float fov, glm::vec3 x_dir, glm::vec3 y_dir, glm::vec3* rays) {
 
   int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
   //Don't do anything if the index is out of bounds
-  if (idx >= resolution.x*resolution.y) {
+  if (idx >= (int)resolution.x * (int)resolution.y) {
     return;
   }
 
@@ -45,11 +45,11 @@ __global__ void createRays(glm::vec2 resolution, float fov, glm::vec3 x_dir, glm
   mag.y = fac * ( (float)y - resolution.y / 2.0f );
 
   //Calculate the direction
-  rays[idx] = (mag.x * x_dir) + (mag.y * y_dir);
+  rays[idx] = START_DIST * glm::normalize( (mag.x * x_dir) + (mag.y * y_dir) + (START_DIST * glm::cross(x_dir, y_dir)));
 
 }
 
-__global__ void coneTrace(uchar4* pos, int* ind, int numRays, glm::vec3 camera_origin, glm::vec3* rays, float distance, int depth, unsigned int* octree, glm::vec3 oct_center, float oct_size) {
+__global__ void coneTrace(uchar4* pos, int* ind, int numRays, glm::vec3 camera_origin, glm::vec3* rays, float pix_scale, unsigned int* octree, glm::vec3 oct_center, float oct_size) {
 
   int idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
@@ -61,13 +61,16 @@ __global__ void coneTrace(uchar4* pos, int* ind, int numRays, glm::vec3 camera_o
   int index = ind[idx];
 
   //Compute the target point
-  glm::vec3 target = camera_origin + rays[index]*distance;
+  glm::vec3 ray = rays[index];
+  glm::vec3 target = camera_origin + ray;
+  float ray_len = glm::length(ray);
+  float pix_size = ray_len*pix_scale;
+  int depth = ceil(log((float)(oct_size / pix_size)) / log(2.0f));
 
   //Descend into the octree and get the value
-  unsigned int oct_val;
   int node_idx = 0;
   int child_idx = 0;
-  bool is_occupied = true;
+  float temp_oct_size = oct_size;
   for (int i = 0; i < depth; i++) {
     //Determine which octant the point lies in
     bool x = target.x > oct_center.x;
@@ -80,8 +83,8 @@ __global__ void coneTrace(uchar4* pos, int* ind, int numRays, glm::vec3 camera_o
     //Get the child number from the first three bits of the morton code
     node_idx = child_idx + child;
 
-    if (!octree[2 * node_idx] & 0x40000000) {
-      is_occupied = false;
+    if (!(octree[2 * node_idx] & 0x40000000)) {
+      depth = i+1;
       break;
     }
 
@@ -89,31 +92,42 @@ __global__ void coneTrace(uchar4* pos, int* ind, int numRays, glm::vec3 camera_o
     child_idx = octree[2 * node_idx] & 0x3FFFFFFF;
 
     //Update the edge length
-    oct_size /= 2.0f;
+    temp_oct_size /= 2.0f;
 
     //Update the center
-    oct_center.x += oct_size * (x ? 1 : -1);
-    oct_center.y += oct_size * (y ? 1 : -1);
-    oct_center.z += oct_size * (z ? 1 : -1);
+    oct_center.x += temp_oct_size * (x ? 1 : -1);
+    oct_center.y += temp_oct_size * (y ? 1 : -1);
+    oct_center.z += temp_oct_size * (z ? 1 : -1);
   }
 
   //Update the pixel value
-  if (is_occupied) {
-    uchar4 value = pos[index];
-    int alpha = oct_val >> 24;
-    value.x = (alpha/255.0f)*((oct_val & 0xFF));
-    value.y = (alpha/255.0f)*((oct_val >> 8) & 0xFF);
-    value.z = (alpha/255.0f)*((oct_val >> 16) & 0xFF);
-    pos[index] = value;
+  unsigned int oct_val = octree[2*node_idx + 1];
+  uchar4 value = pos[index];
+  int alpha = max(0, (oct_val >> 24) - 127);
+  value.x += ((float)alpha/128.0f)*((oct_val & 0xFF));
+  value.y += ((float)alpha/128.0f)*((oct_val >> 8) & 0xFF);
+  value.z += ((float)alpha/128.0f)*((oct_val >> 16) & 0xFF);
+  pos[index] = value;
 
-    //Flag the ray as finished if alpha is saturated
-    if ((int)value.w + alpha > 255) {
-      value.w += alpha;
-    } else {
-      value.w = 255;
-      //TODO: Flag here
-    }
+  //Flag the ray as finished if alpha is saturated
+  if ((int)value.w + alpha < 127) {
+    value.w += alpha;
+  } else {
+    value.w = 255;
+    index = -1;
   }
+
+  float new_dist = oct_size / pow(2.0f, (float)depth);
+
+  //Update the ray length and flag if its gone past the max distance
+  ray *= (ray_len + new_dist) / ray_len;
+  rays[index] = ray;
+  if (glm::length(ray) > MAX_RANGE) {
+    index = -1;
+  }
+
+  //Update the index
+  ind[idx] = index;
 
 }
 
@@ -140,9 +154,7 @@ extern "C" void coneTraceSVO(uchar4* pos, glm::vec2 resolution, float fov, glm::
   createRays<<<ceil(numRays / 256.0f), 256>>>(resolution, fov, x_dir, y_dir, rays);
 
   //Initialize distance and depth
-  float distance = START_DIST;
-  float pix_size = distance*tan(fov*3.14159f/180.0f)/resolution.y;
-  int depth = ceil(log((float)(octree.size/pix_size)) / log(2.0f));
+  float pix_scale = tan(fov*3.14159f/180.0f)/resolution.y;
 
   //Setup indices
   int* ind;
@@ -150,18 +162,16 @@ extern "C" void coneTraceSVO(uchar4* pos, glm::vec2 resolution, float fov, glm::
   thrust::device_ptr<int> t_ind = thrust::device_pointer_cast<int>(ind);
   thrust::sequence(t_ind, t_ind+numRays, 0, 1);
 
+  //Initialize the output
+  cudaMemset(pos, 0, numRays*sizeof(uchar4));
+
   //Loop Cone trace kernel
-  while (numRays > 0 && distance < MAX_RANGE) {
+  while (numRays > 0) {
     //Call the cone tracer
-    coneTrace<<<ceil(numRays / 256.0f), 256>>>(pos, ind, numRays, camera_origin, rays, distance, depth, octree.data, octree.center, octree.size);
+    coneTrace<<<ceil(numRays / 256.0f), 256>>>(pos, ind, numRays, camera_origin, rays, pix_scale, octree.data, octree.center, octree.size);
 
     //Use thrust to remove rays that are saturated
     numRays = thrust::remove_if(t_ind, t_ind + numRays, is_negative()) - t_ind;
-
-    //Update the distance and depth
-    distance += octree.size / (float) pow(2, depth);
-    pix_size = distance*tan(fov*3.14159f / 180.0f) / resolution.y;
-    depth = ceil(log((float)(octree.size / pix_size)) / log(2.0f));
   }
 
   //Cleanup

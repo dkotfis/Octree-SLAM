@@ -28,7 +28,7 @@
 #define DRAW_CAMERA_COLOR 0
 #define DRAW_POINT_CLOUD 0
 #define USE_CUDA_RASTERIZER 0
-#define CONE_TRACING 0
+#define CONE_TRACING 1
 #define OCTREE 1
 
 //-------------------------------
@@ -36,7 +36,7 @@
 //-------------------------------
 
 //Screen/input parameters
-int width_ = 1280; int height_ = 960;
+int width_ = 640; int height_ = 480;
 
 //Light position
 glm::vec3 lightpos_ = glm::vec3(0, 2.0f, 2.0f);

@@ -10,7 +10,7 @@ namespace octree_slam {
 namespace rendering {
 
 //Initialize static member variables
-float GLFWCameraController::FoV_ = 60.0f;
+float GLFWCameraController::FoV_ = 45.0f;
 bool GLFWCameraController::LB_ = false;
 
 GLFWCameraController::GLFWCameraController(GLFWwindow *window, const int width, const int height) :

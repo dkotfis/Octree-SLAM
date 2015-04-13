@@ -91,14 +91,14 @@ void Scene::extractVoxelGridFromOctree() {
 
   //TODO: Take in a "resolution" parameter for the extraction process
   voxel_grid_->bbox = tree_->boundingBox();
-  voxel_grid_->scale = 0.01f;
+  voxel_grid_->scale = 0.005f;
   tree_->extractVoxelGrid(*voxel_grid_);
 }
 
 void Scene::addPointCloudToOctree(const glm::vec3& origin, const glm::vec3* points, const Color256* colors, const int size, const BoundingBox& bbox) {
   //Create the octree if needed
   if (!tree_) {
-    tree_ = new Octree(0.01f, (bbox.bbox1 + bbox.bbox0) / 2.0f, bbox.bbox1.x);
+    tree_ = new Octree(0.005f, (bbox.bbox1 + bbox.bbox0) / 2.0f, bbox.bbox1.x);
 
   //Expand the octree if needed
   } else if (!tree_->boundingBox().contains(bbox)) {

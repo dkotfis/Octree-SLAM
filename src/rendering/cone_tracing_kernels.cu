@@ -23,7 +23,7 @@ namespace rendering {
 __device__ const float MAX_RANGE = 10.0f;
 
 //The starting distance from the origin to start the ray marching from
-__device__ const float START_DIST = 0.02f;
+__device__ const float START_DIST = 0.002f;
 
 __global__ void createRays(glm::vec2 resolution, float fov, glm::vec3 x_dir, glm::vec3 y_dir, glm::vec3* rays) {
 
@@ -39,13 +39,13 @@ __global__ void createRays(glm::vec2 resolution, float fov, glm::vec3 x_dir, glm
   int y = idx / (int)resolution.x;
 
   //Calculate the perpindicular vector component magnitudes from the fov, resolution, and x/y values
-  float fac = tan(fov) / resolution.y;
+  float fac = tan(fov * 3.14159f / 180.0f) / resolution.x;
   glm::vec2 mag;
-  mag.x = fac * ( (float)x - resolution.x / 2.0f );
-  mag.y = fac * ( (float)y - resolution.y / 2.0f );
+  mag.x = /*fac */ ((float)x - resolution.x / 2.0f) / 532.57f; //TODO: This is the hard-coded focal lengths of kinect. get them properly
+  mag.y = /*fac */ ((float)y - resolution.y / 2.0f) / 531.54f;
 
   //Calculate the direction
-  rays[idx] = START_DIST * glm::normalize( (mag.x * x_dir) + (mag.y * y_dir) + (START_DIST * glm::cross(x_dir, y_dir)));
+  rays[idx] = START_DIST * glm::normalize( (mag.x * x_dir) + (mag.y * y_dir) + (glm::cross(x_dir, -y_dir)));
 
 }
 
@@ -71,6 +71,7 @@ __global__ void coneTrace(uchar4* pos, int* ind, int numRays, glm::vec3 camera_o
   int node_idx = 0;
   int child_idx = 0;
   float temp_oct_size = oct_size;
+  bool is_occupied = true;
   for (int i = 0; i < depth; i++) {
     //Determine which octant the point lies in
     bool x = target.x > oct_center.x;
@@ -101,29 +102,41 @@ __global__ void coneTrace(uchar4* pos, int* ind, int numRays, glm::vec3 camera_o
   }
 
   //Update the pixel value
-  unsigned int oct_val = octree[2*node_idx + 1];
   uchar4 value = pos[index];
+  unsigned int oct_val = octree[2 * node_idx + 1];
   int alpha = max(0, (oct_val >> 24) - 127);
-  value.x += ((float)alpha/128.0f)*((oct_val & 0xFF));
-  value.y += ((float)alpha/128.0f)*((oct_val >> 8) & 0xFF);
-  value.z += ((float)alpha/128.0f)*((oct_val >> 16) & 0xFF);
-  pos[index] = value;
+  if (is_occupied) {
+    value.x += (uint8_t) (((float)alpha/127.0f)*(float)((oct_val & 0xFF)));
+    value.y += (uint8_t) (((float)alpha/127.0f)*(float)((oct_val >> 8) & 0xFF));
+    value.z += (uint8_t) (((float)alpha/127.0f)*(float)((oct_val >> 16) & 0xFF));
 
-  //Flag the ray as finished if alpha is saturated
-  if ((int)value.w + alpha < 127) {
-    value.w += alpha;
-  } else {
-    value.w = 255;
-    index = -1;
+    //Flag the ray as finished if alpha is saturated
+    if ((int)value.w + alpha < 127) {
+      value.w += alpha;
+    } else {
+      value.w = 255;
+      pos[index] = value;
+      index = -1;
+    }
   }
 
-  float new_dist = oct_size / pow(2.0f, (float)depth);
+  if (index >= 0) {
 
-  //Update the ray length and flag if its gone past the max distance
-  ray *= (ray_len + new_dist) / ray_len;
-  rays[index] = ray;
-  if (glm::length(ray) > MAX_RANGE) {
-    index = -1;
+    float new_dist = oct_size / pow(2.0f, (float)depth);
+
+    //Update the ray length and flag if its gone past the max distance
+    ray *= (ray_len + new_dist) / ray_len;
+    rays[index] = ray;
+    if (glm::length(ray) > MAX_RANGE) {
+      //Scale up the color
+      value.x *= 127.0f/(float)value.w;
+      value.y *= 127.0f/(float)value.w;
+      value.z *= 127.0f/(float)value.w;
+      value.w = 255;
+      pos[index] = value;
+      index = -1;
+    }
+
   }
 
   //Update the index
@@ -149,8 +162,8 @@ extern "C" void coneTraceSVO(uchar4* pos, glm::vec2 resolution, float fov, glm::
   //Create rays
   glm::vec3* rays;
   cudaMalloc((void**)&rays, numRays * sizeof(glm::vec3));
-  glm::vec3 x_dir = glm::vec3(glm::inverse(cameraPose) * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
-  glm::vec3 y_dir = glm::vec3(glm::inverse(cameraPose) * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+  glm::vec3 x_dir = glm::vec3(glm::inverse(cameraPose) * glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f));
+  glm::vec3 y_dir = glm::vec3(glm::inverse(cameraPose) * glm::vec4(0.0f, -1.0f, 0.0f, 0.0f));
   createRays<<<ceil(numRays / 256.0f), 256>>>(resolution, fov, x_dir, y_dir, rays);
 
   //Initialize distance and depth

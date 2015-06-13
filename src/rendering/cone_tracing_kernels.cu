@@ -14,6 +14,7 @@
 
 // Octree-SLAM Dependencies
 #include <octree_slam/rendering/cone_tracing_kernels.h>
+#include <octree_slam/timing_utils.h>
 
 namespace octree_slam {
 
@@ -154,7 +155,7 @@ struct is_negative
 };
 
 extern "C" void coneTraceSVO(uchar4* pos, glm::vec2 resolution, float fov, glm::mat4 cameraPose, SVO octree) {
-
+  //startTiming();
   int numRays = (int)resolution.x * (int)resolution.y;
 
   glm::vec3 camera_origin = glm::vec3(glm::inverse(cameraPose)*glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
@@ -190,6 +191,10 @@ extern "C" void coneTraceSVO(uchar4* pos, glm::vec2 resolution, float fov, glm::
   //Cleanup
   cudaFree(rays);
   cudaFree(ind);
+
+  //float t = stopTiming();
+  //std::cout << "VCT took: " << t << std::endl;
+
 }
 
 } // namespace rendering

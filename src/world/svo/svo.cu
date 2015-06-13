@@ -641,7 +641,7 @@ extern "C" void svoFromVoxelGrid(const VoxelGrid& grid, const int max_depth, uns
 
 extern "C" void svoFromPointCloud(const glm::vec3* points, const Color256* colors, const int size, const int max_depth, unsigned int* &octree, int& octree_size, glm::vec3 octree_center, const float edge_length, cudaArray* d_bricks) {
   //TODO: This duplicates alot from the VoxelGrid function. Refactor the API to be more efficient
-
+  //startTiming();
   //Initialize the octree with a base set of empty nodes if its empty
   if (octree_size == 0) {
     initOctree(octree);
@@ -690,11 +690,14 @@ extern "C" void svoFromPointCloud(const glm::vec3* points, const Color256* color
   //Free up the keys since they are no longer needed
   cudaFree(d_keys);
 
+  //std::cout << "Num nodes: " << octree_size << std::endl;
+  //float t = stopTiming();
+  //std::cout << "PC insertion took: " << t << std::endl;
 }
 
 
 extern "C" void extractVoxelGridFromSVO(unsigned int* &octree, int& octree_size, const int max_depth, const glm::vec3 center, float edge_length, VoxelGrid& grid) {
-
+  //startTiming();
   //Loop through each pass until max_depth, and determine the number of nodes at the highest resolution, along with morton codes for them
   int num_voxels = 1;
 
@@ -735,6 +738,10 @@ extern "C" void extractVoxelGridFromSVO(unsigned int* &octree, int& octree_size,
 
   //Free up memory
   cudaFree(node_list);
+
+  //float t = stopTiming();
+  //std::cout << "Vox extraction took: " << t << std::endl;
+
 }
 
 } // namespace svo

@@ -103,11 +103,12 @@ bool init(int argc, char* argv[]) {
   scene_ = new octree_slam::world::Scene();
 
   //Load obj file
+  //std::string data = path_prefix + "../objs/bunny_tex.obj";
   //scene_->loadObjFile(data);
 
   //Read texture
   //scene_->loadBMP(path_prefix + std::string("../textures/texture1.bmp"));
-  
+ 
 
 	glfwSetErrorCallback(errorCallback);
 

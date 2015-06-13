@@ -1,5 +1,6 @@
 
 #include <string>
+#include <iostream>
 
 // OpenGL Dependencies
 #include <GL/glew.h>
@@ -13,6 +14,7 @@
 // Octree-SLAM Dependency
 #include <octree_slam/rendering/opengl_renderer.h>
 #include <octree_slam/rendering/gl_interop_kernels.h>
+#include <octree_slam/timing_utils.h>
 
 namespace octree_slam {
 
@@ -97,6 +99,8 @@ void OpenGLRenderer::rasterize(const Mesh& geometry, const Camera& camera, const
 }
 
 void OpenGLRenderer::rasterizeVoxels(const VoxelGrid& geometry, const Camera& camera, const glm::vec3& light) {
+  //startTiming();
+
   //always use the voxel shaders to rasterize voxels with instancing
   glUseProgram(voxel_program_);
   GLuint mvp_location = glGetUniformLocation(voxel_program_, "u_mvpMatrix");
@@ -161,6 +165,10 @@ void OpenGLRenderer::rasterizeVoxels(const VoxelGrid& geometry, const Camera& ca
   //Draw
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glDrawArraysInstanced(GL_TRIANGLES, 0, 36, geometry.size);
+
+  //float t = stopTiming();
+  //std::cout << "Draw took: " << t << std::endl;
+
 }
 
 void OpenGLRenderer::renderPoints(const glm::vec3* positions, const Color256* colors, const int num, const Camera &camera) {
